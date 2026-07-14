@@ -6,8 +6,11 @@ import pytest
 from werkzeug.security import generate_password_hash
 
 from ai_content_loop.db import ContentStore
+from ai_content_loop.editorial.schema import article_id_for
+from ai_content_loop.generation import validate_generation_payload
 from ai_content_loop.models import SourceItem
 from ai_content_loop.review.app import create_app
+from ai_content_loop.visuals.pipeline import insert_body_asset_marker
 
 
 DEDUPE_KEY = "github:owner/repo"
@@ -315,6 +318,34 @@ def test_rich_preview_keeps_source_urls_as_non_navigable_text(review_app):
     assert "target=" not in html
 
 
+def generated_press_payload():
+    """Return the model-stage payload before server-side visual rendering."""
+
+    payload = make_payload()
+    title = payload["master_title"]
+    lead = payload["master_markdown"].split("\n\n", 1)[0]
+    payload["article_layout"] = {
+        "theme": "press",
+        "blocks": [
+            {"type": "hero", "title": title, "deck": lead},
+            {"type": "lead", "text": lead},
+            {"type": "key_judgment", "text": lead},
+            {
+                "type": "section",
+                "heading": title,
+                "paragraphs": [lead],
+            },
+            {"type": "callout", "text": lead},
+            {
+                "type": "source_note",
+                "url": SOURCE_URL,
+                "attribution": title,
+            },
+        ],
+    }
+    return payload
+
+
 def test_rich_preview_fallback_allows_no_protocol_relative_url(review_app):
     article_path = Path(review_app.config["FINAL_DIR"]) / "repo.json"
     payload = json.loads(article_path.read_text(encoding="utf-8"))
@@ -338,6 +369,106 @@ def test_rich_preview_fallback_allows_no_protocol_relative_url(review_app):
 
     assert "href=" not in html
     assert "src=" not in html
+
+
+def test_generated_press_article_can_be_approved_exported_and_is_revoked_on_edit(
+    review_app,
+):
+    """Exercise the contract across generation, review, export, and editing."""
+
+    article_path = Path(review_app.config["FINAL_DIR"]) / "repo.json"
+    generated = generated_press_payload()
+    lead = generated["master_markdown"].split("\n\n", 1)[0]
+    hard, _warnings = validate_generation_payload(
+        generated,
+        dedupe_key=DEDUPE_KEY,
+        source_url=SOURCE_URL,
+        require_rich_layout=True,
+        layout_fact_evidence={
+            "title": generated["master_title"],
+            "facts": [lead],
+            "source_url": SOURCE_URL,
+        },
+    )
+    assert hard == []
+
+    # Visual rendering is server-owned and happens only after model output has
+    # cleared the generation contract.  Supply its canonical persisted result
+    # so approval exercises the real asset gate rather than bypassing it.
+    article_id = article_id_for(DEDUPE_KEY)
+    revision = "c" * 64
+    asset_dir = (
+        Path(review_app.config["ASSET_DIR"]) / article_id / revision
+    )
+    asset_dir.mkdir(parents=True)
+    (asset_dir / "cover.jpg").write_bytes(b"cover")
+    (asset_dir / "body.png").write_bytes(b"body")
+    generated["visual_assets"] = {
+        "cover": {
+            "asset_id": "cover",
+            "revision": revision,
+            "path": f"assets/{article_id}/{revision}/cover.jpg",
+            "template": "ai_done_vs_tests",
+            "copy_index": 0,
+            "ai_generated": False,
+        },
+        "body": [
+            {
+                "asset_id": "body-01",
+                "revision": revision,
+                "path": f"assets/{article_id}/{revision}/body.png",
+                "template": "ai_done_vs_tests",
+                "copy_index": 0,
+                "ai_generated": False,
+            }
+        ],
+    }
+    article_path.write_text(
+        json.dumps(insert_body_asset_marker(generated), ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    client = review_app.test_client()
+    csrf = login(client)
+    loaded = client.get(f"/api/articles/{article_id}").get_json()
+    preview = client.post(
+        "/api/rich-preview",
+        json={"article_id": article_id},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert preview.status_code == 200
+    assert 'class="rich-article"' in preview.get_json()["html"]
+
+    approved = client.post(
+        f"/api/articles/{article_id}/status",
+        json={"status": "approved"},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert approved.status_code == 200
+    exported = client.post(
+        f"/api/articles/{article_id}/web-edition",
+        json={},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert exported.status_code == 200
+    assert (
+        Path(review_app.config["OUTPUT_DIR"])
+        / "web"
+        / f"{article_id}.html"
+    ).is_file()
+
+    replacement = dict(loaded["payload"])
+    replacement["master_title"] = "Edited title revokes the prior export"
+    saved = client.put(
+        f"/api/articles/{article_id}",
+        json={"payload": replacement, "version": loaded["version"]},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert saved.status_code == 200
+    assert client.get(exported.get_json()["view_url"]).status_code == 404
+    assert client.get("/api/articles?status=needs_human_review").get_json()[
+        "articles"
+    ][0]["article_id"] == article_id
 
 
 def test_review_page_contains_editor_shell(review_app):

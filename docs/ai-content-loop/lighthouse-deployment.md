@@ -26,6 +26,9 @@ Target server:
   out/
     drafts/
     final/
+    history/
+    assets/
+    web/
     failures/
     weekly-summary.json
   logs/
@@ -138,3 +141,41 @@ WeChat, Xiaohongshu, Toutiao, or Zhihu.
 
 Hermes is invoked with no tools for article generation. The service runs as
 `agentuser`, never as root, and does not use `--yolo`.
+
+## Rich article and offline web edition
+
+Newly generated final JSON includes a constrained `article_layout` object.
+It is a semantic `press` reading plan, not model-owned HTML, CSS, JavaScript,
+or an asset path. The generation gate accepts only the supported block types,
+requires source-note URLs to match the collected source URL, and rejects
+markup, Markdown links, styles, code, commands, local paths, and unapproved
+URLs in layout text. Existing final JSON without `article_layout` remains
+reviewable: it is loaded with the safe empty `press` layout and uses the
+ordinary Markdown fallback.
+
+The browser review desk has an authenticated, CSRF-protected rich preview. It
+renders server-owned markup and escaped article text; use it to check the
+reader-facing structure, not a model-supplied webpage. Its normal response
+CSP permits only same-origin review assets. The exported edition has a tighter
+CSP: no default source, no scripts or network connections, inline renderer CSS
+only, and `data:` images only.
+
+After an article is approved, the reviewer can export its standalone edition.
+The service writes it atomically to:
+
+```text
+/opt/ai-content-loop/out/web/<article-id>.html
+```
+
+The file contains renderer-owned inline CSS and repository-owned images
+embedded as `data:` URLs. Do not expose `/opt/ai-content-loop/out/` as a
+static web root and do not edit these HTML files by hand. Access the current
+edition through the authenticated review desk, or copy a current approved
+file to an explicitly managed publishing destination.
+
+Saving an edit, restoring a history entry, or rendering a new visual revision
+automatically changes an approved item back to `needs_human_review` and
+revokes its export record. The former file may remain on disk for forensic
+purposes, but the review endpoint will no longer serve it. Re-review, approve,
+and export again; never publish a previously copied edition after a content or
+visual change.
