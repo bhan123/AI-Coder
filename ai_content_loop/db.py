@@ -63,6 +63,14 @@ CREATE TABLE IF NOT EXISTS publish_queue (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS review_web_editions (
+    dedupe_key TEXT PRIMARY KEY,
+    relative_path TEXT NOT NULL,
+    exported_at TEXT NOT NULL,
+    content_version TEXT NOT NULL,
+    FOREIGN KEY(dedupe_key) REFERENCES publish_queue(dedupe_key)
+);
+
 CREATE TABLE IF NOT EXISTS platform_metrics (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     dedupe_key TEXT NOT NULL,
@@ -363,6 +371,42 @@ class ContentStore:
         if status not in allowed:
             raise ValueError(f"unsupported review status: {status}")
         self.update_publish_queue_status(dedupe_key, status)
+
+    def record_web_edition_export(
+        self,
+        dedupe_key: str,
+        relative_path: str,
+        exported_at: str,
+        content_version: str,
+    ) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO review_web_editions (
+                    dedupe_key, relative_path, exported_at, content_version
+                ) VALUES (?, ?, ?, ?)
+                ON CONFLICT(dedupe_key) DO UPDATE SET
+                    relative_path=excluded.relative_path,
+                    exported_at=excluded.exported_at,
+                    content_version=excluded.content_version
+                """,
+                (dedupe_key, relative_path, exported_at, content_version),
+            )
+
+    def get_web_edition_export(
+        self,
+        dedupe_key: str,
+    ) -> dict[str, str] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT relative_path, exported_at, content_version
+                FROM review_web_editions
+                WHERE dedupe_key = ?
+                """,
+                (dedupe_key,),
+            ).fetchone()
+        return None if row is None else dict(row)
 
     def claim_publish_queue_item(
         self, dedupe_key: str, claim_token: str

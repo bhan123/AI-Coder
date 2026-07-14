@@ -486,6 +486,41 @@ def test_export_web_edition_writes_a_standalone_document_in_output_web(
     assert list(exported.parent.glob(f".{article_id}.html.*.tmp")) == []
 
 
+def test_web_edition_metadata_invalidates_after_article_version_changes(
+    repository,
+):
+    article_id = repository.list_articles()[0]["article_id"]
+    repository.store.set_review_status(DEDUPE_KEY, "approved")
+    repository.export_web_edition(article_id)
+    initial_metadata = repository.web_edition_metadata(article_id)
+    initial = repository.load_article(article_id)
+    replacement = dict(initial["payload"])
+    replacement["master_title"] = "导出后修改的标题"
+    saved = repository.save_article(
+        article_id,
+        replacement,
+        initial["version"],
+        operation="edit",
+    )
+
+    assert set(initial_metadata) == {
+        "relative_path",
+        "exported_at",
+        "content_version",
+    }
+    assert initial_metadata["relative_path"] == f"web/{article_id}.html"
+    assert initial_metadata["content_version"] == initial["version"]
+    assert initial_metadata["exported_at"]
+    with pytest.raises(ArticleNotFound):
+        repository.web_edition_path(article_id)
+
+    repository.export_web_edition(article_id)
+    refreshed_metadata = repository.web_edition_metadata(article_id)
+
+    assert refreshed_metadata["content_version"] == saved["version"]
+    assert repository.web_edition_path(article_id).is_file()
+
+
 def test_export_web_edition_keeps_source_urls_as_non_navigable_text(
     repository,
 ):

@@ -478,6 +478,23 @@ def test_web_edition_api_exports_only_approved_server_owned_article(
     assert client.get(value["download_url"]).headers[
         "Content-Security-Policy"
     ] == view.headers["Content-Security-Policy"]
+    loaded = client.get(f"/api/articles/{article_id}").get_json()
+    updated_payload = dict(loaded["payload"])
+    updated_payload["master_title"] = "编辑后需要重新导出的标题"
+    saved = client.put(
+        f"/api/articles/{article_id}",
+        json={"payload": updated_payload, "version": loaded["version"]},
+        headers={"X-CSRF-Token": csrf},
+    )
+
+    assert saved.status_code == 200
+    assert client.get(value["view_url"]).status_code == 404
+    assert client.post(
+        f"/api/articles/{article_id}/web-edition",
+        json={},
+        headers={"X-CSRF-Token": csrf},
+    ).status_code == 200
+    assert client.get(value["view_url"]).status_code == 200
 
 
 def test_web_edition_api_rejects_request_body_injection(review_app):

@@ -463,7 +463,8 @@ class ArticleRepository:
                 queue_row = queue_rows.get(payload["dedupe_key"])
                 if queue_row is None or queue_row["status"] != "approved":
                     raise InvalidArticle("article is not approved for export")
-                destination = self.output_dir / "web" / f"{article_id}.html"
+                relative_path = f"web/{article_id}.html"
+                destination = self.output_dir / relative_path
                 atomic_write_web_edition(
                     destination,
                     render_web_edition(
@@ -472,6 +473,12 @@ class ArticleRepository:
                         fallback_markdown=payload.get("master_markdown"),
                         embedded_images=self._web_edition_images(article_id),
                     ),
+                )
+                self.store.record_web_edition_export(
+                    payload["dedupe_key"],
+                    relative_path,
+                    datetime.now(UTC).isoformat(),
+                    _version(payload),
                 )
                 return destination
 
@@ -520,14 +527,30 @@ class ArticleRepository:
         }
         queue_row = queue_rows.get(payload["dedupe_key"])
         destination = self.output_dir / "web" / f"{article_id}.html"
+        metadata = self.store.get_web_edition_export(payload["dedupe_key"])
         if (
             queue_row is None
             or queue_row["status"] != "approved"
+            or metadata is None
+            or metadata.get("relative_path") != f"web/{article_id}.html"
+            or not hmac.compare_digest(
+                str(metadata.get("content_version", "")),
+                _version(payload),
+            )
             or not destination.is_file()
             or destination.is_symlink()
         ):
             raise ArticleNotFound(article_id)
         return destination
+
+    def web_edition_metadata(self, article_id: str) -> dict[str, str]:
+        """Return server-owned export metadata for a known article."""
+
+        _, payload = self._find(article_id)
+        metadata = self.store.get_web_edition_export(payload["dedupe_key"])
+        if metadata is None:
+            raise ArticleNotFound(article_id)
+        return metadata
 
     def _approval_failures(
         self,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 import hmac
+from io import BytesIO
 import os
 from pathlib import Path
 
@@ -336,7 +337,7 @@ def create_app(test_config: dict | None = None) -> Flask:
         path = repository.web_edition_path(article_id)
         g.web_edition_response = True
         return send_file(
-            path,
+            BytesIO(path.read_bytes()),
             as_attachment=request.args.get("download") == "1",
             download_name=f"{article_id}.html",
             mimetype="text/html",
