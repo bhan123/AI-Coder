@@ -97,16 +97,26 @@ _ARTICLE_LAYOUT_CODE = re.compile(
     r"(?:document|window|globalThis)\."
     r")"
 )
+_ARTICLE_LAYOUT_CODE_CALL = re.compile(
+    r"(?i)\b[a-z_][a-z0-9_]*(?:\.[a-z_][a-z0-9_]*)*\s*\("
+)
+_ARTICLE_LAYOUT_PLAIN_TEXT = re.compile(
+    r"^[A-Za-z0-9\u3400-\u4DBF\u4E00-\u9FFF\s"
+    r"，。！？；：、（）“”‘’《》〈〉—…·,.!?;:()'\"-]+$"
+)
 _ARTICLE_LAYOUT_PROTOCOL = re.compile(
     r"(?i)\b[a-z][a-z0-9+.-]{1,31}:(?://|[^\s])"
 )
 _ARTICLE_LAYOUT_PROTOCOL_RELATIVE = re.compile(r"(?<!\w)//[^\s]+")
 _ARTICLE_LAYOUT_PATH = re.compile(
-    r"(?i)(?:^|[\s(])(?:\./|\.\./|/[^\s]+|[a-z]:[\\/][^\s]*)"
+    r"(?i)(?:"
+    r"(?:^|[\s(])(?:\./|\.\./|/[^\s]+|[a-z]:[\\/][^\s]*)|"
+    r"\b[a-z0-9_.-]+/[a-z0-9_.-]+"
+    r")"
 )
 _ARTICLE_LAYOUT_BARE_DOMAIN = re.compile(
-    r"(?i)(?:^|[\s(])(?:www\.)?(?:[a-z0-9-]+\.)+[a-z]{2,24}"
-    r"(?=$|[\s/):,;.!?])"
+    r"(?i)(?<![a-z0-9-])(?:www\.)?(?:[a-z0-9-]+\.)+[a-z]{2,24}"
+    r"(?![a-z0-9-])"
 )
 _ARTICLE_LAYOUT_IP_ADDRESS = re.compile(
     r"(?<!\d)(?:\d{1,3}\.){3}\d{1,3}(?!\d)"
@@ -330,19 +340,18 @@ def _article_layout_safety_failure(
             return "article_layout:unsafe_markdown"
         if _ARTICLE_LAYOUT_CSS.search(text):
             return "article_layout:unsafe_css"
-        if _ARTICLE_LAYOUT_CODE.search(text):
+        if _ARTICLE_LAYOUT_CODE.search(text) or _ARTICLE_LAYOUT_CODE_CALL.search(text):
             return "article_layout:unsafe_code"
-        if (
-            _ARTICLE_LAYOUT_PROTOCOL.search(text)
-            or _ARTICLE_LAYOUT_PROTOCOL_RELATIVE.search(text)
-            or _ARTICLE_LAYOUT_BARE_DOMAIN.search(text)
-            or _ARTICLE_LAYOUT_IP_ADDRESS.search(text)
-        ):
+        if _ARTICLE_LAYOUT_PROTOCOL.search(text) or _ARTICLE_LAYOUT_PROTOCOL_RELATIVE.search(text):
             return "article_layout:unapproved_url"
         if _ARTICLE_LAYOUT_PATH.search(text):
             return "article_layout:unsafe_path"
+        if _ARTICLE_LAYOUT_BARE_DOMAIN.search(text) or _ARTICLE_LAYOUT_IP_ADDRESS.search(text):
+            return "article_layout:unapproved_url"
         if "{{" in text or "}}" in text or "```" in text:
             return "article_layout:unsafe_render_instruction"
+        if _ARTICLE_LAYOUT_PLAIN_TEXT.fullmatch(text) is None:
+            return "article_layout:unsafe_plain_text"
     return None
 
 

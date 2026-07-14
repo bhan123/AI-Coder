@@ -1971,6 +1971,17 @@ def test_validator_requires_all_reader_first_blocks_for_new_generation():
         ("const render = () => null", "article_layout:unsafe_code"),
         ("def render(): pass", "article_layout:unsafe_code"),
         ("print(1)", "article_layout:unsafe_code"),
+        (r"\\server\share", "article_layout:unsafe_plain_text"),
+        ("~/private/key", "article_layout:unsafe_path"),
+        ("assets/private.txt", "article_layout:unsafe_path"),
+        (r"D:relative\secret", "article_layout:unsafe_plain_text"),
+        ("alert(1)", "article_layout:unsafe_code"),
+        ("fetch('/secret')", "article_layout:unsafe_code"),
+        ("process.exit(1)", "article_layout:unsafe_code"),
+        ("SELECT * FROM users", "article_layout:unsafe_plain_text"),
+        ("#!/bin/sh", "article_layout:unsafe_path"),
+        ('{"render": true}', "article_layout:unsafe_plain_text"),
+        ("请访问example.com", "article_layout:unapproved_url"),
     ],
 )
 def test_validator_rejects_non_plain_layout_text(unsafe_text, failure):
@@ -2105,7 +2116,7 @@ def test_active_prompts_state_two_pass_contracts():
     assert "读者回报" in scoring_prompt
     assert "没有公开 Demo、可用入口或强情绪价值" in scoring_prompt
     assert "# 懂技术的损友编辑" in editorial_prompt
-    assert "Prompt version: editorial-v15" in editorial_prompt
+    assert "Prompt version: editorial-v16" in editorial_prompt
     assert "输入包含锁定事实、事实稿和来源。只改变表达，不新增或修改事实。" in editorial_prompt
     assert "## 人格" in editorial_prompt
     assert "懂技术的朋友 45%，产品经理 + 数据工程师 35%" in editorial_prompt
@@ -2145,7 +2156,8 @@ def test_active_prompts_state_two_pass_contracts():
     assert "返回一个八字段 JSON 对象，不要解释，不要 Markdown 围栏。" in editorial_prompt
     assert "## Rich article layout contract" in editorial_prompt
     assert "article_layout.theme must be press" in editorial_prompt
-    assert "Never emit HTML, CSS, JavaScript, JSX, Markdown links" in editorial_prompt
+    assert "no URL/path syntax, code, markup, or templates" in editorial_prompt
+    assert "ordinary Chinese/English narrative characters" in editorial_prompt
     assert "source_note.url must exactly equal locked_facts.source_url" in editorial_prompt
     assert "plain-text, verbatim excerpts from the final body and locked source fields" in editorial_prompt
     assert "Never use factual_draft as layout evidence" in editorial_prompt

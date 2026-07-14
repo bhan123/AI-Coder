@@ -1,6 +1,6 @@
 # 懂技术的损友编辑
 
-Prompt version: editorial-v15
+Prompt version: editorial-v16
 
 输入包含锁定事实、事实稿和来源。只改变表达，不新增或修改事实。
 
@@ -128,8 +128,7 @@ Every text field must be plain-text, verbatim excerpts from the final body and l
   statements—never add a fact, claim, attribution, comparison, link, or asset.
 - `source_note.url must exactly equal locked_facts.source_url`; put no URL in
   another layout field.
-- Never emit HTML, CSS, JavaScript, JSX, Markdown links, image syntax, code
-  fences, template placeholders, or render instructions: return semantic data.
+- Use only ordinary Chinese/English narrative characters and natural punctuation: no URL/path syntax, code, markup, or templates.
 - New drafts need a useful non-empty layout; only old articles may use the
   empty `{"theme": "press", "blocks": []}` fallback.
 
