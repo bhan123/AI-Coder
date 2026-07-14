@@ -100,6 +100,12 @@ _ARTICLE_LAYOUT_CODE = re.compile(
 _ARTICLE_LAYOUT_CODE_CALL = re.compile(
     r"(?i)\b[a-z_][a-z0-9_]*(?:\.[a-z_][a-z0-9_]*)*\s*\("
 )
+_ARTICLE_LAYOUT_COMMAND = re.compile(
+    r"(?i)^\s*(?:"
+    r"drop\s+table\b|delete\s+from\b|curl\s+-\S+|"
+    r"bash\s+-c\b|powershell\s+-command\b"
+    r")"
+)
 _ARTICLE_LAYOUT_PLAIN_TEXT = re.compile(
     r"^[A-Za-z0-9\u3400-\u4DBF\u4E00-\u9FFF\s"
     r"，。！？；：、（）“”‘’《》〈〉—…·,.!?;:()'\"-]+$"
@@ -114,6 +120,7 @@ _ARTICLE_LAYOUT_PATH = re.compile(
     r"\b[a-z0-9_.-]+/[a-z0-9_.-]+"
     r")"
 )
+_ARTICLE_LAYOUT_DRIVE_RELATIVE = re.compile(r"(?i)\b[a-z]:[a-z0-9_.-]+")
 _ARTICLE_LAYOUT_BARE_DOMAIN = re.compile(
     r"(?i)(?<![a-z0-9-])(?:www\.)?(?:[a-z0-9-]+\.)+[a-z]{2,24}"
     r"(?![a-z0-9-])"
@@ -340,11 +347,13 @@ def _article_layout_safety_failure(
             return "article_layout:unsafe_markdown"
         if _ARTICLE_LAYOUT_CSS.search(text):
             return "article_layout:unsafe_css"
+        if _ARTICLE_LAYOUT_COMMAND.search(text):
+            return "article_layout:unsafe_command"
         if _ARTICLE_LAYOUT_CODE.search(text) or _ARTICLE_LAYOUT_CODE_CALL.search(text):
             return "article_layout:unsafe_code"
         if _ARTICLE_LAYOUT_PROTOCOL.search(text) or _ARTICLE_LAYOUT_PROTOCOL_RELATIVE.search(text):
             return "article_layout:unapproved_url"
-        if _ARTICLE_LAYOUT_PATH.search(text):
+        if _ARTICLE_LAYOUT_PATH.search(text) or _ARTICLE_LAYOUT_DRIVE_RELATIVE.search(text):
             return "article_layout:unsafe_path"
         if _ARTICLE_LAYOUT_BARE_DOMAIN.search(text) or _ARTICLE_LAYOUT_IP_ADDRESS.search(text):
             return "article_layout:unapproved_url"

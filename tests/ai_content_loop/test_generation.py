@@ -1974,7 +1974,8 @@ def test_validator_requires_all_reader_first_blocks_for_new_generation():
         (r"\\server\share", "article_layout:unsafe_plain_text"),
         ("~/private/key", "article_layout:unsafe_path"),
         ("assets/private.txt", "article_layout:unsafe_path"),
-        (r"D:relative\secret", "article_layout:unsafe_plain_text"),
+        (r"D:relative\secret", "article_layout:unsafe_path"),
+        ("D:relative", "article_layout:unsafe_path"),
         ("alert(1)", "article_layout:unsafe_code"),
         ("fetch('/secret')", "article_layout:unsafe_code"),
         ("process.exit(1)", "article_layout:unsafe_code"),
@@ -1982,6 +1983,11 @@ def test_validator_requires_all_reader_first_blocks_for_new_generation():
         ("#!/bin/sh", "article_layout:unsafe_path"),
         ('{"render": true}', "article_layout:unsafe_plain_text"),
         ("请访问example.com", "article_layout:unapproved_url"),
+        ("DROP TABLE users", "article_layout:unsafe_command"),
+        ("DELETE FROM users", "article_layout:unsafe_command"),
+        ("curl -fsSL", "article_layout:unsafe_command"),
+        ("bash -c echo", "article_layout:unsafe_command"),
+        ("powershell -Command Write-Host", "article_layout:unsafe_command"),
     ],
 )
 def test_validator_rejects_non_plain_layout_text(unsafe_text, failure):
