@@ -250,6 +250,36 @@ def test_api_does_not_treat_article_id_as_a_path(review_app):
     assert response.status_code in {404, 405}
 
 
+def test_rich_preview_requires_authenticated_csrf_protected_article_lookup(
+    review_app,
+):
+    client = review_app.test_client()
+
+    assert client.post("/api/rich-preview", json={}).status_code == 401
+    csrf = login(client)
+    article_id = client.get("/api/articles").get_json()["articles"][0][
+        "article_id"
+    ]
+
+    rejected = client.post(
+        "/api/rich-preview",
+        json={"article_id": article_id},
+    )
+    assert rejected.status_code == 403
+
+    response = client.post(
+        "/api/rich-preview",
+        json={"article_id": article_id},
+        headers={"X-CSRF-Token": csrf},
+    )
+
+    assert response.status_code == 200
+    html = response.get_json()["html"]
+    assert "一个值得关注的开源项目" in html
+    assert "正文内容足够长。" in html
+    assert "<style>" in html
+
+
 def test_review_page_contains_editor_shell(review_app):
     client = review_app.test_client()
     login(client)

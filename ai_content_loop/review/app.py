@@ -25,6 +25,7 @@ from ai_content_loop.review.auth import (
     require_csrf,
 )
 from ai_content_loop.review.rendering import render_markdown
+from ai_content_loop.review.rich_article import render_rich_article
 from ai_content_loop.review.repository import (
     ArticleConflict,
     ArticleNotFound,
@@ -156,6 +157,28 @@ def create_app(test_config: dict | None = None) -> Flask:
             html=render_markdown(
                 value["markdown"],
                 asset_urls=asset_urls,
+            )
+        )
+
+    @app.post("/api/rich-preview")
+    @login_required
+    def rich_preview():
+        require_csrf()
+        value = request.get_json(silent=True)
+        if (
+            not isinstance(value, dict)
+            or not isinstance(value.get("article_id"), str)
+        ):
+            return jsonify(error="invalid_request"), 400
+        loaded = repository.load_article(value["article_id"])
+        payload = loaded["payload"]
+        if not isinstance(payload, dict):
+            raise InvalidArticle("stored payload must be an object")
+        return jsonify(
+            html=render_rich_article(
+                payload.get("article_layout"),
+                fallback_title=payload.get("master_title"),
+                fallback_markdown=payload.get("master_markdown"),
             )
         )
 
