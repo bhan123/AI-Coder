@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import re
 import subprocess
 
 import pytest
@@ -15,6 +16,45 @@ from ai_content_loop.visuals.pipeline import insert_body_asset_marker
 
 DEDUPE_KEY = "github:owner/repo"
 SOURCE_URL = "https://github.com/owner/repo"
+
+
+def _workspace_css_rules(css: str) -> list[dict[str, str]]:
+    rules = []
+    for match in re.finditer(
+        r"(?P<selectors>[^{}]+)\{(?P<body>[^{}]*)\}", css, re.DOTALL
+    ):
+        selectors = match.group("selectors").split(",")
+        if not any(
+            re.search(r"(?<![\w-])\.workspace(?![\w-])", selector)
+            for selector in selectors
+        ):
+            continue
+        declarations = {}
+        for declaration in match.group("body").split(";"):
+            if ":" not in declaration:
+                continue
+            property_name, value = declaration.split(":", 1)
+            declarations[property_name.strip().lower()] = value.strip().lower()
+        rules.append(declarations)
+    return rules
+
+
+def _assert_workspace_scrollability(css: str) -> None:
+    workspace_rules = _workspace_css_rules(css)
+    assert workspace_rules, "expected a .workspace CSS rule"
+
+    base_rule = workspace_rules[0]
+    assert base_rule.get("min-height") == "0"
+    assert base_rule.get("overflow-x") == "hidden"
+    assert base_rule.get("overflow-y") == "auto"
+
+    for rule in workspace_rules[1:]:
+        assert "overflow" not in rule, "subsequent .workspace rules must not set overflow"
+        overflow_y = rule.get("overflow-y", "").removesuffix(" !important")
+        assert overflow_y not in {"hidden", "clip"}, (
+            "subsequent .workspace rules must not set overflow-y "
+            f"to {overflow_y}"
+        )
 
 
 def visual_brief():
@@ -716,6 +756,73 @@ def test_rich_preview_stays_inside_the_single_scrollable_workspace(
     assert "grid-template-rows: auto auto auto auto auto minmax(0, 1fr) auto;" in css
     assert ".preview-workspace" in css
     assert "min-height: 420px" not in css
+
+
+def test_review_layout_keeps_rich_preview_in_scrollable_workspace():
+    css = (
+        Path(__file__).parents[2]
+        / "ai_content_loop"
+        / "review"
+        / "static"
+        / "review.css"
+    ).read_text(encoding="utf-8")
+
+    _assert_workspace_scrollability(css)
+
+
+def test_workspace_scrollability_rejects_hidden_vertical_override():
+    css_with_hidden_override = """
+    .workspace {
+      min-height: 0;
+      overflow-x: hidden;
+      overflow-y: auto;
+    }
+
+    @media (max-height: 700px) {
+      .workspace {
+        overflow-y: hidden;
+      }
+    }
+    """
+
+    with pytest.raises(AssertionError, match="overflow-y.*hidden"):
+        _assert_workspace_scrollability(css_with_hidden_override)
+
+
+@pytest.mark.parametrize(
+    "workspace_override",
+    [
+        ".workspace, .compact-workspace { overflow: hidden !important; }",
+        ".workspace.is-compact { overflow-y: clip !important; }",
+    ],
+)
+def test_workspace_scrollability_rejects_compound_workspace_overrides(
+    workspace_override,
+):
+    css = f"""
+    .workspace {{
+      min-height: 0;
+      overflow-x: hidden;
+      overflow-y: auto;
+    }}
+    {workspace_override}
+    """
+
+    with pytest.raises(AssertionError):
+        _assert_workspace_scrollability(css)
+
+
+def test_workspace_scrollability_ignores_non_workspace_rules():
+    css = """
+    .workspace {
+      min-height: 0;
+      overflow-x: hidden;
+      overflow-y: auto;
+    }
+    .compact-workspace { overflow: hidden !important; }
+    """
+
+    _assert_workspace_scrollability(css)
 
 
 def test_rich_preview_runtime_discards_stale_response_and_recovers_button():
