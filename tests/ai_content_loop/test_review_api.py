@@ -20,7 +20,15 @@ SOURCE_URL = "https://github.com/owner/repo"
 
 def _workspace_css_rules(css: str) -> list[dict[str, str]]:
     rules = []
-    for match in re.finditer(r"\.workspace\s*\{(?P<body>[^{}]*)\}", css, re.DOTALL):
+    for match in re.finditer(
+        r"(?P<selectors>[^{}]+)\{(?P<body>[^{}]*)\}", css, re.DOTALL
+    ):
+        selectors = match.group("selectors").split(",")
+        if not any(
+            re.search(r"(?<![\w-])\.workspace(?![\w-])", selector)
+            for selector in selectors
+        ):
+            continue
         declarations = {}
         for declaration in match.group("body").split(";"):
             if ":" not in declaration:
@@ -779,6 +787,42 @@ def test_workspace_scrollability_rejects_hidden_vertical_override():
 
     with pytest.raises(AssertionError, match="overflow-y.*hidden"):
         _assert_workspace_scrollability(css_with_hidden_override)
+
+
+@pytest.mark.parametrize(
+    "workspace_override",
+    [
+        ".workspace, .compact-workspace { overflow: hidden !important; }",
+        ".workspace.is-compact { overflow-y: clip !important; }",
+    ],
+)
+def test_workspace_scrollability_rejects_compound_workspace_overrides(
+    workspace_override,
+):
+    css = f"""
+    .workspace {{
+      min-height: 0;
+      overflow-x: hidden;
+      overflow-y: auto;
+    }}
+    {workspace_override}
+    """
+
+    with pytest.raises(AssertionError):
+        _assert_workspace_scrollability(css)
+
+
+def test_workspace_scrollability_ignores_non_workspace_rules():
+    css = """
+    .workspace {
+      min-height: 0;
+      overflow-x: hidden;
+      overflow-y: auto;
+    }
+    .compact-workspace { overflow: hidden !important; }
+    """
+
+    _assert_workspace_scrollability(css)
 
 
 def test_rich_preview_runtime_discards_stale_response_and_recovers_button():
