@@ -493,6 +493,12 @@ def test_web_edition_api_exports_only_approved_server_owned_article(
         f"/api/articles/{article_id}/web-edition",
         json={},
         headers={"X-CSRF-Token": csrf},
+    ).status_code == 400
+    repository.store.set_review_status(DEDUPE_KEY, "approved")
+    assert client.post(
+        f"/api/articles/{article_id}/web-edition",
+        json={},
+        headers={"X-CSRF-Token": csrf},
     ).status_code == 200
     assert client.get(value["view_url"]).status_code == 200
 

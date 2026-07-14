@@ -486,7 +486,7 @@ def test_export_web_edition_writes_a_standalone_document_in_output_web(
     assert list(exported.parent.glob(f".{article_id}.html.*.tmp")) == []
 
 
-def test_web_edition_metadata_invalidates_after_article_version_changes(
+def test_web_edition_invalidates_on_edit_and_restore_until_reapproved(
     repository,
 ):
     article_id = repository.list_articles()[0]["article_id"]
@@ -502,6 +502,7 @@ def test_web_edition_metadata_invalidates_after_article_version_changes(
         initial["version"],
         operation="edit",
     )
+    history_id = repository.list_history(article_id)[0]["history_id"]
 
     assert set(initial_metadata) == {
         "relative_path",
@@ -513,12 +514,52 @@ def test_web_edition_metadata_invalidates_after_article_version_changes(
     assert initial_metadata["exported_at"]
     with pytest.raises(ArticleNotFound):
         repository.web_edition_path(article_id)
+    with pytest.raises(ArticleNotFound):
+        repository.web_edition_metadata(article_id)
+    assert repository.list_articles(status="needs_human_review")[0][
+        "article_id"
+    ] == article_id
+    with pytest.raises(InvalidArticle, match="not approved"):
+        repository.export_web_edition(article_id)
+
+    restored = repository.restore_article(
+        article_id,
+        history_id,
+        saved["version"],
+    )
+
+    assert restored["payload"]["master_title"] == initial["payload"][
+        "master_title"
+    ]
+    with pytest.raises(ArticleNotFound):
+        repository.web_edition_path(article_id)
+    repository.store.set_review_status(DEDUPE_KEY, "approved")
 
     repository.export_web_edition(article_id)
     refreshed_metadata = repository.web_edition_metadata(article_id)
 
-    assert refreshed_metadata["content_version"] == saved["version"]
+    assert refreshed_metadata["content_version"] == restored["version"]
     assert repository.web_edition_path(article_id).is_file()
+
+
+def test_web_edition_invalidates_after_visual_edit(repository):
+    article_id = repository.list_articles()[0]["article_id"]
+    repository.store.set_review_status(DEDUPE_KEY, "approved")
+    repository.export_web_edition(article_id)
+    loaded = repository.load_article(article_id)
+
+    repository.save_article(
+        article_id,
+        loaded["payload"],
+        loaded["version"],
+        operation="visual_edit",
+    )
+
+    assert repository.list_articles(status="needs_human_review")[0][
+        "article_id"
+    ] == article_id
+    with pytest.raises(ArticleNotFound):
+        repository.web_edition_path(article_id)
 
 
 def test_export_web_edition_keeps_source_urls_as_non_navigable_text(

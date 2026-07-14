@@ -408,6 +408,28 @@ class ContentStore:
             ).fetchone()
         return None if row is None else dict(row)
 
+    def invalidate_web_edition_after_article_change(
+        self,
+        dedupe_key: str,
+    ) -> None:
+        """Atomically drop a stale export record and revoke prior approval."""
+
+        with self.connect() as conn:
+            conn.execute(
+                "DELETE FROM review_web_editions WHERE dedupe_key = ?",
+                (dedupe_key,),
+            )
+            conn.execute(
+                """
+                UPDATE publish_queue
+                SET status = 'needs_human_review',
+                    claimed_at = NULL,
+                    claim_token = NULL
+                WHERE dedupe_key = ? AND status = 'approved'
+                """,
+                (dedupe_key,),
+            )
+
     def claim_publish_queue_item(
         self, dedupe_key: str, claim_token: str
     ) -> bool:

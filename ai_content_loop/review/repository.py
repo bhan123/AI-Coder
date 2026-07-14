@@ -376,6 +376,12 @@ class ArticleRepository:
                     envelope,
                 )
                 _atomic_json_write(path, replacement)
+                # The database mutation is transactional.  The final JSON is
+                # already durable; its changed version also makes any stale
+                # export unreadable if a process stops before this call.
+                self.store.invalidate_web_edition_after_article_change(
+                    current["dedupe_key"]
+                )
                 return self.load_article(article_id)
 
     def list_history(self, article_id: str) -> list[dict[str, str]]:
