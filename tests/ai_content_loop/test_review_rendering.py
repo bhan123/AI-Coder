@@ -95,8 +95,26 @@ def test_render_rich_article_renders_whitelisted_press_blocks_as_escaped_html():
     assert 'class="rich-article__toc"' in html
     assert "<script>" not in html
     assert "&lt;script&gt;不能执行&lt;/script&gt;" in html
-    assert 'href="https://example.com/source"' in html
+    assert "https://example.com/source" in html
+    assert 'href="https://example.com/source"' not in html
+    assert "target=" not in html
     assert "主要发现" in html
+
+
+def test_rich_article_fallback_has_no_external_navigation_or_resources():
+    from ai_content_loop.review.rich_article import render_rich_article
+
+    html = render_rich_article(
+        {"theme": "press", "blocks": []},
+        fallback_title="标题",
+        fallback_markdown=(
+            "[来源](https://example.com/source)\n\n"
+            "![远程图片](https://example.com/remote.png)"
+        ),
+    )
+
+    assert 'href="https://example.com/source"' not in html
+    assert 'src="https://example.com/remote.png"' not in html
 
 
 def test_render_rich_article_falls_back_for_an_empty_or_untrusted_layout():

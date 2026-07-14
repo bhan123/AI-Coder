@@ -486,6 +486,34 @@ def test_export_web_edition_writes_a_standalone_document_in_output_web(
     assert list(exported.parent.glob(f".{article_id}.html.*.tmp")) == []
 
 
+def test_export_web_edition_keeps_source_urls_as_non_navigable_text(
+    repository,
+):
+    article_id = repository.list_articles()[0]["article_id"]
+    payload = article_payload()
+    payload["article_layout"] = {
+        "theme": "press",
+        "blocks": [
+            {
+                "type": "source_note",
+                "url": "https://example.com/source",
+                "attribution": "原始来源",
+            }
+        ],
+    }
+    (repository.final_dir / "repo.json").write_text(
+        json.dumps(payload, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    repository.store.set_review_status(DEDUPE_KEY, "approved")
+
+    html = repository.export_web_edition(article_id).read_text(encoding="utf-8")
+
+    assert "https://example.com/source" in html
+    assert 'href="https://example.com/source"' not in html
+    assert "target=" not in html
+
+
 def test_export_web_edition_embeds_only_safe_repository_assets(repository):
     article_id = repository.list_articles()[0]["article_id"]
     revision = "a" * 64

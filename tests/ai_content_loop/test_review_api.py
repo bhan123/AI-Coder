@@ -280,6 +280,40 @@ def test_rich_preview_requires_authenticated_csrf_protected_article_lookup(
     assert "<style>" not in html
 
 
+def test_rich_preview_keeps_source_urls_as_non_navigable_text(review_app):
+    article_path = Path(review_app.config["FINAL_DIR"]) / "repo.json"
+    payload = json.loads(article_path.read_text(encoding="utf-8"))
+    payload["article_layout"] = {
+        "theme": "press",
+        "blocks": [
+            {
+                "type": "source_note",
+                "url": "https://example.com/source",
+                "attribution": "原始来源",
+            }
+        ],
+    }
+    article_path.write_text(
+        json.dumps(payload, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    client = review_app.test_client()
+    csrf = login(client)
+    article_id = client.get("/api/articles").get_json()["articles"][0][
+        "article_id"
+    ]
+
+    html = client.post(
+        "/api/rich-preview",
+        json={"article_id": article_id},
+        headers={"X-CSRF-Token": csrf},
+    ).get_json()["html"]
+
+    assert "https://example.com/source" in html
+    assert 'href="https://example.com/source"' not in html
+    assert "target=" not in html
+
+
 def test_review_page_contains_editor_shell(review_app):
     client = review_app.test_client()
     login(client)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from html import escape
+import re
 from urllib.parse import urlparse
 
 from ai_content_loop.review.rendering import render_markdown
@@ -16,6 +17,14 @@ _BLOCK_FIELDS = {
     "callout": {"type", "text"},
     "source_note": {"type", "url", "attribution"},
 }
+_EXTERNAL_HTTP_HREF = re.compile(
+    r"\s+href=(?:\"https?://[^\"]*\"|'https?://[^']*')",
+    re.IGNORECASE,
+)
+_EXTERNAL_HTTP_IMAGE = re.compile(
+    r"<img\b[^>]*\bsrc=(?:\"https?://[^\"]*\"|'https?://[^']*')[^>]*>",
+    re.IGNORECASE,
+)
 
 
 def _nonempty_text(value: object) -> bool:
@@ -94,6 +103,12 @@ def _fallback_html(*, title: object, markdown: object) -> str:
     )
 
 
+def _without_external_network_resources(html: str) -> str:
+    """Keep readable link text while removing browser-fetchable HTTP(S) URLs."""
+
+    return _EXTERNAL_HTTP_HREF.sub("", _EXTERNAL_HTTP_IMAGE.sub("", html))
+
+
 def _render_block(block: dict[str, object], section_index: int) -> str:
     block_type = block["type"]
     if block_type == "hero":
@@ -139,11 +154,10 @@ def _render_block(block: dict[str, object], section_index: int) -> str:
             f"{escape(str(block['text']))}</aside>"
         )
     if block_type == "source_note":
-        url = escape(str(block["url"]), quote=True)
         return (
             '<p class="rich-article__source">来源：'
-            f'<a href="{url}" rel="noreferrer noopener" target="_blank">'
-            f"{escape(str(block['attribution']))}</a></p>"
+            f'<span>{escape(str(block["attribution"]))}</span> '
+            f"<code>{escape(str(block['url']))}</code></p>"
         )
     raise ValueError("unsupported rich article block")
 
@@ -157,7 +171,9 @@ def render_rich_article(
     """Render trusted semantic blocks, never model-owned markup or styles."""
 
     if not _trusted_press_layout(article_layout) or not article_layout["blocks"]:
-        return _fallback_html(title=fallback_title, markdown=fallback_markdown)
+        return _without_external_network_resources(
+            _fallback_html(title=fallback_title, markdown=fallback_markdown)
+        )
 
     sections = [
         str(block["heading"])
@@ -182,7 +198,7 @@ def render_rich_article(
         if block["type"] == "section":
             section_index += 1
         rendered.append(_render_block(block, section_index))
-    return (
+    return _without_external_network_resources(
         '<article class="rich-article">'
         f"{toc_html}{''.join(rendered)}"
         "</article>"
