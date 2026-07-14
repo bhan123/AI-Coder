@@ -727,22 +727,55 @@ def test_generate_drafts_isolates_invalid_bundle_and_continues(
             "platform_markdown",
         )
     }
-    generation_outputs = iter([good_factual_payload, good_payload])
+    model_prompts: list[str] = []
+
+    def staged_runner(argv, **_runner_kwargs):
+        prompt = argv[-1]
+        model_prompts.append(prompt)
+
+        if "Prompt version: factual-v8" in prompt:
+            if len(model_prompts) != 1:
+                raise AssertionError(
+                    "unexpected factual prompt call "
+                    f"{len(model_prompts)}: {prompt[:300]!r}"
+                )
+            payload = good_factual_payload
+        elif "Prompt version: editorial-v16" in prompt:
+            if len(model_prompts) != 2:
+                raise AssertionError(
+                    "unexpected editorial prompt call "
+                    f"{len(model_prompts)}: {prompt[:300]!r}"
+                )
+            assert '"source_title": "Good source"' in prompt
+            assert '"facts": [' in prompt
+            assert good_summary in prompt
+            payload = good_payload
+        else:
+            raise AssertionError(
+                "unexpected generation prompt stage/call "
+                f"{len(model_prompts)}: {prompt[:300]!r}"
+            )
+
+        return subprocess.CompletedProcess(
+            argv,
+            0,
+            stdout=json.dumps(payload),
+            stderr="",
+        )
 
     def run_real_generation(**kwargs):
         return real_generate_draft(
             **kwargs,
-            runner=lambda argv, **_runner_kwargs: subprocess.CompletedProcess(
-                argv,
-                0,
-                stdout=json.dumps(next(generation_outputs)),
-                stderr="",
-            ),
+            runner=staged_runner,
         )
 
     monkeypatch.setattr(cli, "generate_draft", run_real_generation)
 
     run_generate_drafts(config_path)
+
+    assert len(model_prompts) == 2
+    assert "Prompt version: factual-v8" in model_prompts[0]
+    assert "Prompt version: editorial-v16" in model_prompts[1]
 
     rows = {
         row["dedupe_key"]: row["status"]
