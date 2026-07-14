@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from datetime import timedelta
 import hmac
+from io import BytesIO
 import os
 from pathlib import Path
 
 from flask import (
     Flask,
     current_app,
+    g,
     jsonify,
     render_template,
     request,
@@ -25,6 +27,7 @@ from ai_content_loop.review.auth import (
     require_csrf,
 )
 from ai_content_loop.review.rendering import render_markdown
+from ai_content_loop.review.rich_article import render_rich_article
 from ai_content_loop.review.repository import (
     ArticleConflict,
     ArticleNotFound,
@@ -42,6 +45,16 @@ REVIEW_STATUSES = {
     "approved",
     "revision_requested",
 }
+REVIEW_CSP = (
+    "default-src 'self'; img-src 'self' data:; style-src 'self'; "
+    "script-src 'self'; base-uri 'none'; frame-ancestors 'none'; "
+    "form-action 'self'"
+)
+WEB_EDITION_CSP = (
+    "default-src 'none'; img-src data:; style-src 'unsafe-inline'; "
+    "script-src 'none'; connect-src 'none'; base-uri 'none'; "
+    "frame-ancestors 'none'; form-action 'none'"
+)
 
 
 def create_app(test_config: dict | None = None) -> Flask:
@@ -156,6 +169,28 @@ def create_app(test_config: dict | None = None) -> Flask:
             html=render_markdown(
                 value["markdown"],
                 asset_urls=asset_urls,
+            )
+        )
+
+    @app.post("/api/rich-preview")
+    @login_required
+    def rich_preview():
+        require_csrf()
+        value = request.get_json(silent=True)
+        if (
+            not isinstance(value, dict)
+            or not isinstance(value.get("article_id"), str)
+        ):
+            return jsonify(error="invalid_request"), 400
+        loaded = repository.load_article(value["article_id"])
+        payload = loaded["payload"]
+        if not isinstance(payload, dict):
+            raise InvalidArticle("stored payload must be an object")
+        return jsonify(
+            html=render_rich_article(
+                payload.get("article_layout"),
+                fallback_title=payload.get("master_title"),
+                fallback_markdown=payload.get("master_markdown"),
             )
         )
 
@@ -279,12 +314,42 @@ def create_app(test_config: dict | None = None) -> Flask:
         repository.set_status(article_id, status)
         return jsonify(status=status)
 
+    @app.post("/api/articles/<article_id>/web-edition")
+    @login_required
+    def export_web_edition(article_id: str):
+        require_csrf()
+        value = request.get_json(silent=True)
+        if value not in (None, {}):
+            return jsonify(error="invalid_request"), 400
+        repository.export_web_edition(article_id)
+        return jsonify(
+            view_url=url_for("web_edition", article_id=article_id),
+            download_url=url_for(
+                "web_edition",
+                article_id=article_id,
+                download="1",
+            ),
+        )
+
+    @app.get("/api/articles/<article_id>/web-edition")
+    @login_required
+    def web_edition(article_id: str):
+        path = repository.web_edition_path(article_id)
+        g.web_edition_response = True
+        return send_file(
+            BytesIO(path.read_bytes()),
+            as_attachment=request.args.get("download") == "1",
+            download_name=f"{article_id}.html",
+            mimetype="text/html",
+            conditional=True,
+        )
+
     @app.after_request
     def security_headers(response):
         response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; img-src 'self' data:; style-src 'self'; "
-            "script-src 'self'; base-uri 'none'; frame-ancestors 'none'; "
-            "form-action 'self'"
+            WEB_EDITION_CSP
+            if getattr(g, "web_edition_response", False)
+            else REVIEW_CSP
         )
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["X-Content-Type-Options"] = "nosniff"

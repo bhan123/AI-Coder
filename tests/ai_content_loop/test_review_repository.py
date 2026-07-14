@@ -12,7 +12,9 @@ from ai_content_loop.review.repository import (
     ArticleNotFound,
     ArticleRepository,
     InvalidArticle,
+    _atomic_json_write,
 )
+from ai_content_loop.visuals.pipeline import insert_body_asset_marker
 
 
 DEDUPE_KEY = "github:owner/repo"
@@ -459,3 +461,237 @@ def test_history_identifier_cannot_escape_history_directory(repository):
             history_id="../../repo.json",
             expected_version=loaded["version"],
         )
+
+
+def test_export_web_edition_requires_an_approved_article(repository):
+    article_id = repository.list_articles()[0]["article_id"]
+
+    with pytest.raises(InvalidArticle, match="not approved"):
+        repository.export_web_edition(article_id)
+
+
+def test_export_web_edition_writes_a_standalone_document_in_output_web(
+    repository,
+):
+    article_id = repository.list_articles()[0]["article_id"]
+    repository.store.set_review_status(DEDUPE_KEY, "approved")
+
+    exported = repository.export_web_edition(article_id)
+
+    assert exported == repository.output_dir / "web" / f"{article_id}.html"
+    assert exported.is_file()
+    html = exported.read_text(encoding="utf-8")
+    assert html.startswith("<!doctype html>")
+    assert "<style>" in html
+    assert "<script" not in html.lower()
+    assert list(exported.parent.glob(f".{article_id}.html.*.tmp")) == []
+
+
+def test_web_edition_invalidates_on_edit_and_restore_until_reapproved(
+    repository,
+):
+    article_id = repository.list_articles()[0]["article_id"]
+    repository.store.set_review_status(DEDUPE_KEY, "approved")
+    repository.export_web_edition(article_id)
+    initial_metadata = repository.web_edition_metadata(article_id)
+    initial = repository.load_article(article_id)
+    replacement = dict(initial["payload"])
+    replacement["master_title"] = "导出后修改的标题"
+    saved = repository.save_article(
+        article_id,
+        replacement,
+        initial["version"],
+        operation="edit",
+    )
+    history_id = repository.list_history(article_id)[0]["history_id"]
+
+    assert set(initial_metadata) == {
+        "relative_path",
+        "exported_at",
+        "content_version",
+    }
+    assert initial_metadata["relative_path"] == f"web/{article_id}.html"
+    assert initial_metadata["content_version"] == initial["version"]
+    assert initial_metadata["exported_at"]
+    with pytest.raises(ArticleNotFound):
+        repository.web_edition_path(article_id)
+    with pytest.raises(ArticleNotFound):
+        repository.web_edition_metadata(article_id)
+    assert repository.list_articles(status="needs_human_review")[0][
+        "article_id"
+    ] == article_id
+    with pytest.raises(InvalidArticle, match="not approved"):
+        repository.export_web_edition(article_id)
+
+    restored = repository.restore_article(
+        article_id,
+        history_id,
+        saved["version"],
+    )
+
+    assert restored["payload"]["master_title"] == initial["payload"][
+        "master_title"
+    ]
+    with pytest.raises(ArticleNotFound):
+        repository.web_edition_path(article_id)
+    repository.store.set_review_status(DEDUPE_KEY, "approved")
+
+    repository.export_web_edition(article_id)
+    refreshed_metadata = repository.web_edition_metadata(article_id)
+
+    assert refreshed_metadata["content_version"] == restored["version"]
+    assert repository.web_edition_path(article_id).is_file()
+
+
+def test_web_edition_invalidates_after_visual_edit(repository):
+    article_id = repository.list_articles()[0]["article_id"]
+    repository.store.set_review_status(DEDUPE_KEY, "approved")
+    repository.export_web_edition(article_id)
+    loaded = repository.load_article(article_id)
+
+    repository.save_article(
+        article_id,
+        loaded["payload"],
+        loaded["version"],
+        operation="visual_edit",
+    )
+
+    assert repository.list_articles(status="needs_human_review")[0][
+        "article_id"
+    ] == article_id
+    with pytest.raises(ArticleNotFound):
+        repository.web_edition_path(article_id)
+
+
+def test_failed_article_write_revokes_old_web_edition_before_final_write(
+    repository,
+    monkeypatch,
+):
+    article_id = repository.list_articles()[0]["article_id"]
+    repository.store.set_review_status(DEDUPE_KEY, "approved")
+    repository.export_web_edition(article_id)
+    loaded = repository.load_article(article_id)
+    replacement = dict(loaded["payload"])
+    replacement["master_title"] = "不会落盘的标题"
+    original_write = _atomic_json_write
+
+    def fail_final_write(path, value):
+        if path == repository.final_dir / "repo.json":
+            raise OSError("simulated final write failure")
+        original_write(path, value)
+
+    monkeypatch.setattr(
+        "ai_content_loop.review.repository._atomic_json_write",
+        fail_final_write,
+    )
+
+    with pytest.raises(OSError, match="simulated final write failure"):
+        repository.save_article(
+            article_id,
+            replacement,
+            loaded["version"],
+            operation="edit",
+        )
+
+    assert repository.load_article(article_id)["version"] == loaded["version"]
+    assert repository.list_articles(status="needs_human_review")[0][
+        "article_id"
+    ] == article_id
+    with pytest.raises(ArticleNotFound):
+        repository.web_edition_path(article_id)
+
+
+def test_export_web_edition_keeps_source_urls_as_non_navigable_text(
+    repository,
+):
+    article_id = repository.list_articles()[0]["article_id"]
+    payload = article_payload()
+    payload["article_layout"] = {
+        "theme": "press",
+        "blocks": [
+            {
+                "type": "source_note",
+                "url": "https://example.com/source",
+                "attribution": "原始来源",
+            }
+        ],
+    }
+    (repository.final_dir / "repo.json").write_text(
+        json.dumps(payload, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    repository.store.set_review_status(DEDUPE_KEY, "approved")
+
+    html = repository.export_web_edition(article_id).read_text(encoding="utf-8")
+
+    assert "https://example.com/source" in html
+    assert 'href="https://example.com/source"' not in html
+    assert "target=" not in html
+
+
+def test_export_web_edition_fallback_allows_no_protocol_relative_url(
+    repository,
+):
+    article_id = repository.list_articles()[0]["article_id"]
+    payload = article_payload()
+    payload["master_markdown"] = "[绕过](//example.com/path)\n\n![图](//example.com/a.png)"
+    payload["article_layout"] = {"theme": "press", "blocks": []}
+    (repository.final_dir / "repo.json").write_text(
+        json.dumps(payload, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    repository.store.set_review_status(DEDUPE_KEY, "approved")
+
+    html = repository.export_web_edition(article_id).read_text(encoding="utf-8")
+
+    assert "href=" not in html
+    assert "src=" not in html
+
+
+def test_export_web_edition_embeds_only_safe_repository_assets(repository):
+    article_id = repository.list_articles()[0]["article_id"]
+    revision = "a" * 64
+    asset_dir = repository.assets_dir / article_id / revision
+    asset_dir.mkdir(parents=True)
+    (asset_dir / "cover.jpg").write_bytes(b"cover")
+    (asset_dir / "body.png").write_bytes(b"body")
+    payload = article_payload()
+    payload["visual_assets"] = {
+        "cover": {
+            "asset_id": "cover",
+            "revision": revision,
+            "path": f"assets/{article_id}/{revision}/cover.jpg",
+            "template": "ai_done_vs_tests",
+            "copy_index": 0,
+            "ai_generated": False,
+        },
+        "body": [
+            {
+                "asset_id": "body-01",
+                "revision": revision,
+                "path": f"assets/{article_id}/{revision}/body.png",
+                "template": "ai_done_vs_tests",
+                "copy_index": 0,
+                "ai_generated": False,
+            }
+        ],
+    }
+    (repository.final_dir / "repo.json").write_text(
+        json.dumps(insert_body_asset_marker(payload), ensure_ascii=False),
+        encoding="utf-8",
+    )
+    repository.store.set_review_status(DEDUPE_KEY, "approved")
+
+    html = repository.export_web_edition(article_id).read_text(encoding="utf-8")
+
+    assert "data:image/jpeg;base64,Y292ZXI=" in html
+    assert "data:image/png;base64,Ym9keQ==" in html
+    assert str(asset_dir) not in html
+    (asset_dir / "cover.jpg").unlink()
+
+    without_missing_asset = repository.export_web_edition(article_id).read_text(
+        encoding="utf-8"
+    )
+
+    assert "data:image/jpeg;base64,Y292ZXI=" not in without_missing_asset
+    assert "data:image/png;base64,Ym9keQ==" in without_missing_asset

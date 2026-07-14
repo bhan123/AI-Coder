@@ -10,7 +10,10 @@ import pytest
 from PIL import Image
 
 from ai_content_loop.editorial import schema
-from ai_content_loop.editorial.schema import FinalSchemaError
+from ai_content_loop.editorial.schema import (
+    FinalSchemaError,
+    empty_article_layout,
+)
 from ai_content_loop.visuals.renderer import BODY_SIZE, COVER_SIZE
 
 
@@ -62,6 +65,7 @@ def valid_payload() -> dict[str, object]:
             ],
         },
         "visual_assets": {"cover": None, "body": []},
+        "article_layout": empty_article_layout(),
     }
 
 

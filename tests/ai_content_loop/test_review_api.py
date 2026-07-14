@@ -1,12 +1,16 @@
 import json
 from pathlib import Path
+import subprocess
 
 import pytest
 from werkzeug.security import generate_password_hash
 
 from ai_content_loop.db import ContentStore
+from ai_content_loop.editorial.schema import article_id_for
+from ai_content_loop.generation import validate_generation_payload
 from ai_content_loop.models import SourceItem
 from ai_content_loop.review.app import create_app
+from ai_content_loop.visuals.pipeline import insert_body_asset_marker
 
 
 DEDUPE_KEY = "github:owner/repo"
@@ -250,6 +254,223 @@ def test_api_does_not_treat_article_id_as_a_path(review_app):
     assert response.status_code in {404, 405}
 
 
+def test_rich_preview_requires_authenticated_csrf_protected_article_lookup(
+    review_app,
+):
+    client = review_app.test_client()
+
+    assert client.post("/api/rich-preview", json={}).status_code == 401
+    csrf = login(client)
+    article_id = client.get("/api/articles").get_json()["articles"][0][
+        "article_id"
+    ]
+
+    rejected = client.post(
+        "/api/rich-preview",
+        json={"article_id": article_id},
+    )
+    assert rejected.status_code == 403
+
+    response = client.post(
+        "/api/rich-preview",
+        json={"article_id": article_id},
+        headers={"X-CSRF-Token": csrf},
+    )
+
+    assert response.status_code == 200
+    html = response.get_json()["html"]
+    assert "一个值得关注的开源项目" in html
+    assert "正文内容足够长。" in html
+    assert "<style>" not in html
+
+
+def test_rich_preview_keeps_source_urls_as_non_navigable_text(review_app):
+    article_path = Path(review_app.config["FINAL_DIR"]) / "repo.json"
+    payload = json.loads(article_path.read_text(encoding="utf-8"))
+    payload["article_layout"] = {
+        "theme": "press",
+        "blocks": [
+            {
+                "type": "source_note",
+                "url": "https://example.com/source",
+                "attribution": "原始来源",
+            }
+        ],
+    }
+    article_path.write_text(
+        json.dumps(payload, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    client = review_app.test_client()
+    csrf = login(client)
+    article_id = client.get("/api/articles").get_json()["articles"][0][
+        "article_id"
+    ]
+
+    html = client.post(
+        "/api/rich-preview",
+        json={"article_id": article_id},
+        headers={"X-CSRF-Token": csrf},
+    ).get_json()["html"]
+
+    assert "https://example.com/source" in html
+    assert 'href="https://example.com/source"' not in html
+    assert "target=" not in html
+
+
+def generated_press_payload():
+    """Return the model-stage payload before server-side visual rendering."""
+
+    payload = make_payload()
+    title = payload["master_title"]
+    lead = payload["master_markdown"].split("\n\n", 1)[0]
+    payload["article_layout"] = {
+        "theme": "press",
+        "blocks": [
+            {"type": "hero", "title": title, "deck": lead},
+            {"type": "lead", "text": lead},
+            {"type": "key_judgment", "text": lead},
+            {
+                "type": "section",
+                "heading": title,
+                "paragraphs": [lead],
+            },
+            {"type": "callout", "text": lead},
+            {
+                "type": "source_note",
+                "url": SOURCE_URL,
+                "attribution": title,
+            },
+        ],
+    }
+    return payload
+
+
+def test_rich_preview_fallback_allows_no_protocol_relative_url(review_app):
+    article_path = Path(review_app.config["FINAL_DIR"]) / "repo.json"
+    payload = json.loads(article_path.read_text(encoding="utf-8"))
+    payload["master_markdown"] = "[绕过](//example.com/path)\n\n![图](//example.com/a.png)"
+    payload["article_layout"] = {"theme": "press", "blocks": []}
+    article_path.write_text(
+        json.dumps(payload, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    client = review_app.test_client()
+    csrf = login(client)
+    article_id = client.get("/api/articles").get_json()["articles"][0][
+        "article_id"
+    ]
+
+    html = client.post(
+        "/api/rich-preview",
+        json={"article_id": article_id},
+        headers={"X-CSRF-Token": csrf},
+    ).get_json()["html"]
+
+    assert "href=" not in html
+    assert "src=" not in html
+
+
+def test_generated_press_article_can_be_approved_exported_and_is_revoked_on_edit(
+    review_app,
+):
+    """Exercise the contract across generation, review, export, and editing."""
+
+    article_path = Path(review_app.config["FINAL_DIR"]) / "repo.json"
+    generated = generated_press_payload()
+    lead = generated["master_markdown"].split("\n\n", 1)[0]
+    hard, _warnings = validate_generation_payload(
+        generated,
+        dedupe_key=DEDUPE_KEY,
+        source_url=SOURCE_URL,
+        require_rich_layout=True,
+        layout_fact_evidence={
+            "title": generated["master_title"],
+            "facts": [lead],
+            "source_url": SOURCE_URL,
+        },
+    )
+    assert hard == []
+
+    # Visual rendering is server-owned and happens only after model output has
+    # cleared the generation contract.  Supply its canonical persisted result
+    # so approval exercises the real asset gate rather than bypassing it.
+    article_id = article_id_for(DEDUPE_KEY)
+    revision = "c" * 64
+    asset_dir = (
+        Path(review_app.config["ASSET_DIR"]) / article_id / revision
+    )
+    asset_dir.mkdir(parents=True)
+    (asset_dir / "cover.jpg").write_bytes(b"cover")
+    (asset_dir / "body.png").write_bytes(b"body")
+    generated["visual_assets"] = {
+        "cover": {
+            "asset_id": "cover",
+            "revision": revision,
+            "path": f"assets/{article_id}/{revision}/cover.jpg",
+            "template": "ai_done_vs_tests",
+            "copy_index": 0,
+            "ai_generated": False,
+        },
+        "body": [
+            {
+                "asset_id": "body-01",
+                "revision": revision,
+                "path": f"assets/{article_id}/{revision}/body.png",
+                "template": "ai_done_vs_tests",
+                "copy_index": 0,
+                "ai_generated": False,
+            }
+        ],
+    }
+    article_path.write_text(
+        json.dumps(insert_body_asset_marker(generated), ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    client = review_app.test_client()
+    csrf = login(client)
+    loaded = client.get(f"/api/articles/{article_id}").get_json()
+    preview = client.post(
+        "/api/rich-preview",
+        json={"article_id": article_id},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert preview.status_code == 200
+    assert 'class="rich-article"' in preview.get_json()["html"]
+
+    approved = client.post(
+        f"/api/articles/{article_id}/status",
+        json={"status": "approved"},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert approved.status_code == 200
+    exported = client.post(
+        f"/api/articles/{article_id}/web-edition",
+        json={},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert exported.status_code == 200
+    assert (
+        Path(review_app.config["OUTPUT_DIR"])
+        / "web"
+        / f"{article_id}.html"
+    ).is_file()
+
+    replacement = dict(loaded["payload"])
+    replacement["master_title"] = "Edited title revokes the prior export"
+    saved = client.put(
+        f"/api/articles/{article_id}",
+        json={"payload": replacement, "version": loaded["version"]},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert saved.status_code == 200
+    assert client.get(exported.get_json()["view_url"]).status_code == 404
+    assert client.get("/api/articles?status=needs_human_review").get_json()[
+        "articles"
+    ][0]["article_id"] == article_id
+
+
 def test_review_page_contains_editor_shell(review_app):
     client = review_app.test_client()
     login(client)
@@ -265,6 +486,18 @@ def test_review_page_contains_editor_shell(review_app):
     assert 'data-platform="xiaohongshu"' in html
     assert 'data-platform="toutiao"' in html
     assert 'data-platform="zhihu"' in html
+    assert 'href="/static/rich_article.css"' in html
+
+
+def test_review_page_serves_rich_article_styles_from_own_static_origin(
+    review_app,
+):
+    css = review_app.test_client().get(
+        "/static/rich_article.css"
+    ).get_data(as_text=True)
+
+    assert ".rich-article__toc" in css
+    assert ".rich-article__hero" in css
 
 
 def test_create_app_loads_production_environment(monkeypatch, tmp_path):
@@ -328,6 +561,96 @@ def test_review_sidebar_renders_generated_date():
     assert "article-date" in script
 
 
+def test_web_edition_api_exports_only_approved_server_owned_article(
+    review_app,
+):
+    client = review_app.test_client()
+    assert client.post("/api/articles/nope/web-edition").status_code == 401
+    csrf = login(client)
+    article_id = client.get("/api/articles").get_json()["articles"][0][
+        "article_id"
+    ]
+
+    rejected = client.post(
+        f"/api/articles/{article_id}/web-edition",
+        json={},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert rejected.status_code == 400
+
+    repository = review_app.extensions["article_repository"]
+    repository.store.set_review_status(DEDUPE_KEY, "approved")
+    response = client.post(
+        f"/api/articles/{article_id}/web-edition",
+        json={},
+        headers={"X-CSRF-Token": csrf},
+    )
+
+    assert response.status_code == 200
+    value = response.get_json()
+    assert value["view_url"] == f"/api/articles/{article_id}/web-edition"
+    assert value["download_url"] == (
+        f"/api/articles/{article_id}/web-edition?download=1"
+    )
+    view = client.get(value["view_url"])
+    html = view.get_data(as_text=True)
+
+    assert html.startswith("<!doctype html>")
+    assert "<script" not in html.lower()
+    assert 'href="http' not in html
+    assert 'src="http' not in html
+    assert view.headers["Content-Security-Policy"] == (
+        "default-src 'none'; img-src data:; style-src 'unsafe-inline'; "
+        "script-src 'none'; connect-src 'none'; base-uri 'none'; "
+        "frame-ancestors 'none'; form-action 'none'"
+    )
+    assert "style-src 'self'" in client.get("/login").headers[
+        "Content-Security-Policy"
+    ]
+    assert client.get(value["download_url"]).headers[
+        "Content-Security-Policy"
+    ] == view.headers["Content-Security-Policy"]
+    loaded = client.get(f"/api/articles/{article_id}").get_json()
+    updated_payload = dict(loaded["payload"])
+    updated_payload["master_title"] = "编辑后需要重新导出的标题"
+    saved = client.put(
+        f"/api/articles/{article_id}",
+        json={"payload": updated_payload, "version": loaded["version"]},
+        headers={"X-CSRF-Token": csrf},
+    )
+
+    assert saved.status_code == 200
+    assert client.get(value["view_url"]).status_code == 404
+    assert client.post(
+        f"/api/articles/{article_id}/web-edition",
+        json={},
+        headers={"X-CSRF-Token": csrf},
+    ).status_code == 400
+    repository.store.set_review_status(DEDUPE_KEY, "approved")
+    assert client.post(
+        f"/api/articles/{article_id}/web-edition",
+        json={},
+        headers={"X-CSRF-Token": csrf},
+    ).status_code == 200
+    assert client.get(value["view_url"]).status_code == 200
+
+
+def test_web_edition_api_rejects_request_body_injection(review_app):
+    client = review_app.test_client()
+    csrf = login(client)
+    article_id = client.get("/api/articles").get_json()["articles"][0][
+        "article_id"
+    ]
+
+    response = client.post(
+        f"/api/articles/{article_id}/web-edition",
+        json={"html": "<script>alert(1)</script>", "path": "../../x"},
+        headers={"X-CSRF-Token": csrf},
+    )
+
+    assert response.status_code == 400
+
+
 def test_review_ui_labels_non_blocking_editorial_warnings():
     script = (
         Path(__file__).parents[2]
@@ -339,3 +662,165 @@ def test_review_ui_labels_non_blocking_editorial_warnings():
 
     assert 'below_target_length: "未达到平台建议篇幅"' in script
     assert 'editorial_placeholder: "正文包含编辑占位文字"' in script
+
+
+def test_review_page_exposes_safe_rich_preview_and_approved_export_controls(
+    review_app,
+):
+    client = review_app.test_client()
+    login(client)
+    html = client.get("/").get_data(as_text=True)
+    script = (
+        Path(__file__).parents[2]
+        / "ai_content_loop"
+        / "review"
+        / "static"
+        / "review.js"
+    ).read_text(encoding="utf-8")
+
+    for element_id in (
+        "rich-preview-button",
+        "rich-preview-pane",
+        "rich-article-preview",
+        "rich-preview-close-button",
+        "export-web-edition-button",
+        "web-edition-links",
+    ):
+        assert f'id="{element_id}"' in html
+
+    assert 'api("/api/rich-preview"' in script
+    assert "/web-edition" in script
+    assert "updateWebEditionControls" in script
+    assert "clearWebEditionLinks" in script
+    assert "richArticlePreview.innerHTML = value.html" in script
+
+
+def test_rich_preview_stays_inside_the_single_scrollable_workspace(
+    review_app,
+):
+    client = review_app.test_client()
+    login(client)
+    html = client.get("/").get_data(as_text=True)
+    css = (
+        Path(__file__).parents[2]
+        / "ai_content_loop"
+        / "review"
+        / "static"
+        / "review.css"
+    ).read_text(encoding="utf-8")
+
+    assert 'id="preview-workspace"' in html
+    assert html.index('id="preview-workspace"') < html.index(
+        'id="rich-preview-pane"'
+    )
+    assert "grid-template-rows: auto auto auto auto auto minmax(0, 1fr) auto;" in css
+    assert ".preview-workspace" in css
+    assert "min-height: 420px" not in css
+
+
+def test_rich_preview_runtime_discards_stale_response_and_recovers_button():
+    script_path = (
+        Path(__file__).parents[2]
+        / "ai_content_loop"
+        / "review"
+        / "static"
+        / "review.js"
+    )
+    node_script = r'''
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const vm = require("node:vm");
+const source = fs.readFileSync(process.argv[1], "utf8");
+
+class Element {
+  constructor() {
+    this.hidden = false;
+    this.disabled = false;
+    this.textContent = "";
+    this.innerHTML = "";
+    this.value = "";
+    this.content = "csrf";
+    this.dataset = {};
+    this.className = "";
+    this.classList = {add() {}, remove() {}, toggle() {}};
+  }
+  addEventListener() {}
+  append() {}
+  replaceChildren(...children) { this.children = children; }
+}
+
+const elements = new Map();
+function element(selector) {
+  if (!elements.has(selector)) elements.set(selector, new Element());
+  return elements.get(selector);
+}
+let resolveRichResponse;
+const context = {
+  URL,
+  console,
+  document: {
+    querySelector: element,
+    querySelectorAll: () => [],
+    createElement: () => new Element(),
+  },
+  navigator: {clipboard: {writeText: async () => {}}},
+  window: {
+    location: {origin: "https://review.example", assign() {}},
+    setTimeout(callback) { callback(); return 0; },
+    confirm() { return true; },
+    addEventListener() {},
+  },
+  fetch(path) {
+    if (path === "/api/rich-preview") {
+      return new Promise((resolve) => {
+        resolveRichResponse = () => resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({html: "<p>stale rich preview</p>"}),
+        });
+      });
+    }
+    return Promise.resolve({
+      ok: true,
+      status: 200,
+      json: async () => ({articles: []}),
+    });
+  },
+};
+context.globalThis = context;
+vm.createContext(context);
+vm.runInContext(
+  `${source}\nglobalThis.__reviewHooks = {state, showRichPreview, invalidateRichPreview};`,
+  context,
+);
+
+(async () => {
+  const hooks = context.__reviewHooks;
+  const button = element("#rich-preview-button");
+  const pane = element("#rich-preview-pane");
+  const article = element("#rich-article-preview");
+  hooks.state.articleId = "old-article";
+  const pending = hooks.showRichPreview();
+  await Promise.resolve();
+  assert.equal(button.disabled, true);
+
+  hooks.invalidateRichPreview();
+  assert.equal(button.disabled, false);
+  assert.equal(pane.hidden, true);
+  resolveRichResponse();
+  await pending;
+  assert.notEqual(article.innerHTML, "<p>stale rich preview</p>");
+})().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
+'''
+
+    completed = subprocess.run(
+        ["node", "-e", node_script, str(script_path)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr

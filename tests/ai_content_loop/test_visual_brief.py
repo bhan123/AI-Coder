@@ -5,6 +5,7 @@ import pytest
 
 from ai_content_loop.editorial.schema import (
     FinalSchemaError,
+    empty_article_layout,
     normalize_final_payload,
 )
 from ai_content_loop.generation import validate_generation_payload
@@ -68,6 +69,7 @@ def valid_final_payload():
         },
         "visual_brief": valid_brief(),
         "visual_assets": {"cover": None, "body": []},
+        "article_layout": empty_article_layout(),
     }
 
 
@@ -460,7 +462,12 @@ def test_enriched_schema_converts_visual_brief_error_without_value_leakage():
 
 def test_legacy_schema_still_normalizes_with_a_null_visual_brief():
     payload = valid_final_payload()
-    for field in ("editorial_profile", "visual_brief", "visual_assets"):
+    for field in (
+        "editorial_profile",
+        "visual_brief",
+        "visual_assets",
+        "article_layout",
+    ):
         del payload[field]
 
     normalized = normalize_final_payload(payload)
@@ -528,6 +535,25 @@ def test_generation_keeps_null_visual_failure_with_nested_schema_failure():
     )
 
     assert hard == ["invalid_final_schema"]  # visual_brief:root is a warning
+    assert "model-controlled-secret" not in repr(hard)
+
+
+@pytest.mark.parametrize("legacy_enriched", [False, True])
+def test_generation_strictly_validates_nested_schema_for_current_and_legacy_layouts(
+    legacy_enriched,
+):
+    payload = valid_final_payload()
+    if legacy_enriched:
+        del payload["article_layout"]
+    payload["editorial_profile"]["unexpected"] = "model-controlled-secret"
+
+    hard, _w = validate_generation_payload(
+        payload,
+        dedupe_key=DEDUPE_KEY,
+        source_url=SOURCE_URL,
+    )
+
+    assert hard == ["invalid_final_schema"]
     assert "model-controlled-secret" not in repr(hard)
 
 

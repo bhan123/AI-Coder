@@ -4,6 +4,7 @@ import hashlib
 import json
 import locale
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -72,6 +73,78 @@ _PLATFORM_MIN_CHARS = {
 _EDITORIAL_PLACEHOLDERS = ("正文配图", "封面配图", "图片占位")
 
 _NEUTRAL_TITLE = "内容质量检查使用的中性标题"
+_ARTICLE_LAYOUT_MARKUP = re.compile(r"<\s*/?\s*[A-Za-z][^>]*>")
+_ARTICLE_LAYOUT_MARKDOWN_LINK = re.compile(r"!?\[[^\]]*\]\([^)]*\)")
+_ARTICLE_LAYOUT_MARKDOWN = re.compile(
+    r"(?mx)(?:"
+    r"\*\*|__|~~|`|"
+    r"\*[^*\n]+\*|(?<!\w)_[^_\n]+_(?!\w)|"
+    r"\[[^\]\n]+\]\[[^\]\n]+\]|"
+    r"^\s*(?:\#{1,6}\s|[-+*]\s+|\d+\.\s+|>\s)"
+    r")"
+)
+_ARTICLE_LAYOUT_CSS = re.compile(
+    r"(?i)(?:"
+    r"url\s*\(|@import\b|"
+    r"\b(?:color|font-family|background|display|position|margin|padding)\s*:|"
+    r"(?:^|\s)\.[A-Za-z_-][\w-]*\s*\{"
+    r")"
+)
+_ARTICLE_LAYOUT_CODE = re.compile(
+    r"(?i)(?:"
+    r"=>|\b(?:const|let|var|function|return|class|import|export)\b|"
+    r"\bdef\s+\w+\s*\(|\bprint\s*\(|"
+    r"(?:document|window|globalThis)\."
+    r")"
+)
+_ARTICLE_LAYOUT_CODE_CALL = re.compile(
+    r"(?i)\b[a-z_][a-z0-9_]*(?:\.[a-z_][a-z0-9_]*)*\s*\("
+)
+_ARTICLE_LAYOUT_COMMAND = re.compile(
+    r"(?i)^\s*(?:"
+    r"drop\s+table\b|delete\s+from\b|curl\s+-\S+|"
+    r"bash\s+-c\b|powershell\s+-command\b"
+    r")"
+)
+_ARTICLE_LAYOUT_PLAIN_TEXT = re.compile(
+    r"^[A-Za-z0-9\u3400-\u4DBF\u4E00-\u9FFF\s"
+    r"，。！？；：、（）“”‘’《》〈〉—…·,.!?;:()'\"-]+$"
+)
+_ARTICLE_LAYOUT_PROTOCOL = re.compile(
+    r"(?i)\b[a-z][a-z0-9+.-]{1,31}:(?://|[^\s])"
+)
+_ARTICLE_LAYOUT_PROTOCOL_RELATIVE = re.compile(r"(?<!\w)//[^\s]+")
+_ARTICLE_LAYOUT_PATH = re.compile(
+    r"(?i)(?:"
+    r"(?:^|[\s(])(?:\./|\.\./|/[^\s]+|[a-z]:[\\/][^\s]*)|"
+    r"\b[a-z0-9_.-]+/[a-z0-9_.-]+"
+    r")"
+)
+_ARTICLE_LAYOUT_DRIVE_RELATIVE = re.compile(r"(?i)\b[a-z]:[a-z0-9_.-]+")
+_ARTICLE_LAYOUT_BARE_DOMAIN = re.compile(
+    r"(?i)(?<![a-z0-9-])(?:www\.)?(?:[a-z0-9-]+\.)+[a-z]{2,24}"
+    r"(?![a-z0-9-])"
+)
+_ARTICLE_LAYOUT_IP_ADDRESS = re.compile(
+    r"(?<!\d)(?:\d{1,3}\.){3}\d{1,3}(?!\d)"
+)
+_LOCKED_LAYOUT_EVIDENCE_FIELDS = (
+    "title",
+    "source_title",
+    "summary",
+    "source_summary",
+    "description",
+    "source_url",
+)
+_REQUIRED_RICH_LAYOUT_BLOCK_TYPES = {
+    "hero",
+    "lead",
+    "key_judgment",
+    "section",
+    "callout",
+    "source_note",
+}
+
 _NEUTRAL_SOURCE_URL = "https://example.invalid/source"
 _NEUTRAL_BODY = (
     f"这是仅用于验证共享标题且长度足够的中性正文内容。来源：{_NEUTRAL_SOURCE_URL}"
@@ -202,6 +275,128 @@ def _contains_editorial_placeholder(markdown: str) -> bool:
     return any(placeholder in markdown for placeholder in _EDITORIAL_PLACEHOLDERS)
 
 
+def _article_layout_text_values(layout: object) -> list[str]:
+    """Return textual fields from a schema-normalized semantic layout."""
+    if not isinstance(layout, dict) or not isinstance(layout.get("blocks"), list):
+        return []
+    values: list[str] = []
+    for block in layout["blocks"]:
+        if not isinstance(block, dict):
+            continue
+        for field, value in block.items():
+            if field in {"type", "url"}:
+                continue
+            if isinstance(value, str):
+                values.append(value)
+            elif isinstance(value, list):
+                values.extend(item for item in value if isinstance(item, str))
+    return values
+
+
+def _normalized_text(value: str) -> str:
+    return " ".join(value.split())
+
+
+def _locked_layout_evidence_text(value: object) -> str:
+    """Extract only collection-time evidence fields from a draft bundle.
+
+    The factual drafting model is deliberately excluded: it is model output,
+    not an authority for a subsequent layout claim.
+    """
+    if not isinstance(value, dict):
+        return ""
+    values = [
+        value[field]
+        for field in _LOCKED_LAYOUT_EVIDENCE_FIELDS
+        if isinstance(value.get(field), str)
+    ]
+    facts = value.get("facts")
+    if isinstance(facts, list):
+        values.extend(item for item in facts if isinstance(item, str))
+    return "\n".join(values)
+
+
+def _article_layout_safety_failure(
+    layout: object,
+    *,
+    source_url: str,
+) -> str | None:
+    """Return a bounded, machine-readable failure for unsafe layout data.
+
+    Schema validation runs before this helper. The extra checks make the
+    renderer's data boundary explicit: semantic block text cannot smuggle in
+    presentation code or an unreviewed URL, and a source note can only refer
+    to the locked source URL supplied for this draft.
+    """
+    if not isinstance(layout, dict):
+        return None
+    blocks = layout.get("blocks")
+    if not isinstance(blocks, list):
+        return None
+
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        if block.get("type") == "source_note" and block.get("url") != source_url:
+            return "article_layout:source_url_mismatch"
+
+    for text in _article_layout_text_values(layout):
+        if _ARTICLE_LAYOUT_MARKUP.search(text):
+            return "article_layout:unsafe_markup"
+        if _ARTICLE_LAYOUT_MARKDOWN_LINK.search(text) or _ARTICLE_LAYOUT_MARKDOWN.search(text):
+            return "article_layout:unsafe_markdown"
+        if _ARTICLE_LAYOUT_CSS.search(text):
+            return "article_layout:unsafe_css"
+        if _ARTICLE_LAYOUT_COMMAND.search(text):
+            return "article_layout:unsafe_command"
+        if _ARTICLE_LAYOUT_CODE.search(text) or _ARTICLE_LAYOUT_CODE_CALL.search(text):
+            return "article_layout:unsafe_code"
+        if _ARTICLE_LAYOUT_PROTOCOL.search(text) or _ARTICLE_LAYOUT_PROTOCOL_RELATIVE.search(text):
+            return "article_layout:unapproved_url"
+        if _ARTICLE_LAYOUT_PATH.search(text) or _ARTICLE_LAYOUT_DRIVE_RELATIVE.search(text):
+            return "article_layout:unsafe_path"
+        if _ARTICLE_LAYOUT_BARE_DOMAIN.search(text) or _ARTICLE_LAYOUT_IP_ADDRESS.search(text):
+            return "article_layout:unapproved_url"
+        if "{{" in text or "}}" in text or "```" in text:
+            return "article_layout:unsafe_render_instruction"
+        if _ARTICLE_LAYOUT_PLAIN_TEXT.fullmatch(text) is None:
+            return "article_layout:unsafe_plain_text"
+    return None
+
+
+def _rich_layout_failure(
+    layout: object,
+    *,
+    master_title: str,
+    master_markdown: str,
+    layout_fact_evidence: object | None,
+) -> str | None:
+    """Enforce the stricter contract used only for new editorial output."""
+    if not isinstance(layout, dict) or not isinstance(layout.get("blocks"), list):
+        return "article_layout:missing_required_blocks"
+    block_types = {
+        block.get("type")
+        for block in layout["blocks"]
+        if isinstance(block, dict)
+    }
+    if not _REQUIRED_RICH_LAYOUT_BLOCK_TYPES.issubset(block_types):
+        return "article_layout:missing_required_blocks"
+
+    evidence = _normalized_text(
+        _locked_layout_evidence_text(layout_fact_evidence)
+    )
+    if not evidence:
+        return "article_layout:missing_fact_evidence"
+    body = _normalized_text(f"{master_title}\n{master_markdown}")
+    for text in _article_layout_text_values(layout):
+        normalized = _normalized_text(text)
+        if normalized not in body:
+            return "article_layout:not_grounded_in_body"
+        if normalized not in evidence:
+            return "article_layout:not_grounded_in_fact_evidence"
+    return None
+
+
 def _code_base(failure: str) -> str:
     """Strip known prefixes to recover the base quality code for classification."""
     for prefix in (
@@ -218,6 +413,8 @@ def validate_generation_payload(
     *,
     dedupe_key: str,
     source_url: str,
+    require_rich_layout: bool = False,
+    layout_fact_evidence: object | None = None,
 ) -> tuple[list[str], list[str]]:
     """Validate an enriched editorial payload.
 
@@ -330,13 +527,42 @@ def validate_generation_payload(
             visual_brief_warnings.append(f)
     before_schema_warnings.extend(visual_brief_warnings)
 
-    if set(fields) == FINAL_FIELDS and not before_schema_hard:
+    if (
+        (
+            set(fields) == FINAL_FIELDS
+            or set(fields) == FINAL_FIELDS - {"article_layout"}
+        )
+        and not before_schema_hard
+    ):
         try:
-            normalize_final_payload(fields)
+            normalized = normalize_final_payload(fields)
         except FinalSchemaError as exc:
-            add_failure(exc.failure_code or "invalid_final_schema")
+            if exc.failure_code is not None:
+                add_failure(exc.failure_code)
+            elif str(exc).startswith("article_layout"):
+                add_failure("article_layout:invalid_schema")
+            else:
+                add_failure("invalid_final_schema")
             if exc.failure_code is None:
                 add_visual_brief_failure()
+        else:
+            layout_failure = _article_layout_safety_failure(
+                normalized["article_layout"],
+                source_url=source_url,
+            )
+            if layout_failure is not None:
+                add_failure(layout_failure)
+            if require_rich_layout:
+                master = normalized["master_markdown"]
+                title = normalized["master_title"]
+                rich_layout_failure = _rich_layout_failure(
+                    normalized["article_layout"],
+                    master_title=title,
+                    master_markdown=master,
+                    layout_fact_evidence=layout_fact_evidence,
+                )
+                if rich_layout_failure is not None:
+                    add_failure(rich_layout_failure)
 
     editorial_profile = fields.get("editorial_profile")
     if not isinstance(editorial_profile, dict):
@@ -1160,6 +1386,8 @@ def generate_draft(
                         payload,
                         dedupe_key=dedupe_key,
                         source_url=source_url,
+                        require_rich_layout=True,
+                        layout_fact_evidence=bundle,
                     )
                     # Inject style warnings into editorial_profile so the review
                     # desk can display them without blocking the article.

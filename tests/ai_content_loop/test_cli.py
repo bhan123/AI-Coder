@@ -11,7 +11,7 @@ from PIL import Image
 from ai_content_loop import cli, generation
 from ai_content_loop.config import load_config
 from ai_content_loop.db import ContentStore
-from ai_content_loop.editorial.schema import article_id_for
+from ai_content_loop.editorial.schema import article_id_for, empty_article_layout
 from ai_content_loop.generation import GenerationOutcome
 from ai_content_loop.models import CandidateScore, SourceItem
 from ai_content_loop.visuals.renderer import BODY_SIZE, COVER_SIZE
@@ -97,6 +97,7 @@ def visual_payload(dedupe_key: str = "github:owner/repo") -> dict:
             ],
         },
         "visual_assets": {"cover": None, "body": []},
+        "article_layout": empty_article_layout(),
     }
 
 
@@ -605,12 +606,16 @@ def test_generate_drafts_isolates_invalid_bundle_and_continues(
     bad_path.parent.mkdir(parents=True)
     bad_path.write_text(json.dumps(invalid_bundle), encoding="utf-8")
     good_url = "https://github.com/owner/good"
+    good_title = "A sufficiently descriptive title"
+    good_summary = "A sufficiently detailed grounded draft body with facts."
     good_path.write_text(
         json.dumps(
             {
                 "dedupe_key": "github:owner/good",
                 "source_url": good_url,
                 "source_title": "Good source",
+                "title": good_title,
+                "facts": [good_summary],
             }
         ),
         encoding="utf-8",
@@ -638,15 +643,11 @@ def test_generate_drafts_isolates_invalid_bundle_and_continues(
     good_payload = {
         "dedupe_key": "github:owner/good",
         "column": "AI discoveries",
-        "master_title": "A sufficiently descriptive title",
-        "master_markdown": (
-            "A sufficiently detailed grounded draft body with facts. "
-            f"Source: {good_url}"
-        ),
+        "master_title": good_title,
+        "master_markdown": f"{good_summary} Source: {good_url}",
         "platform_markdown": {
             platform: (
-                "A sufficiently detailed platform draft body with facts. "
-                f"Source: {good_url}"
+                f"{good_summary} Source: {good_url}"
             )
             for platform in generation.PLATFORMS
         },
@@ -692,6 +693,29 @@ def test_generate_drafts_isolates_invalid_bundle_and_continues(
             ],
         },
         "visual_assets": {"cover": None, "body": []},
+        "article_layout": {
+            "theme": "press",
+            "blocks": [
+                {
+                    "type": "hero",
+                    "title": good_title,
+                    "deck": good_summary,
+                },
+                {"type": "lead", "text": good_summary},
+                {"type": "key_judgment", "text": good_summary},
+                {
+                    "type": "section",
+                    "heading": good_title,
+                    "paragraphs": [good_summary],
+                },
+                {"type": "callout", "text": good_summary},
+                {
+                    "type": "source_note",
+                    "url": good_url,
+                    "attribution": good_title,
+                },
+            ],
+        },
     }
     good_factual_payload = {
         key: good_payload[key]
@@ -703,22 +727,55 @@ def test_generate_drafts_isolates_invalid_bundle_and_continues(
             "platform_markdown",
         )
     }
-    generation_outputs = iter([good_factual_payload, good_payload])
+    model_prompts: list[str] = []
+
+    def staged_runner(argv, **_runner_kwargs):
+        prompt = argv[-1]
+        model_prompts.append(prompt)
+
+        if "Prompt version: factual-v8" in prompt:
+            if len(model_prompts) != 1:
+                raise AssertionError(
+                    "unexpected factual prompt call "
+                    f"{len(model_prompts)}: {prompt[:300]!r}"
+                )
+            payload = good_factual_payload
+        elif "Prompt version: editorial-v16" in prompt:
+            if len(model_prompts) != 2:
+                raise AssertionError(
+                    "unexpected editorial prompt call "
+                    f"{len(model_prompts)}: {prompt[:300]!r}"
+                )
+            assert '"source_title": "Good source"' in prompt
+            assert '"facts": [' in prompt
+            assert good_summary in prompt
+            payload = good_payload
+        else:
+            raise AssertionError(
+                "unexpected generation prompt stage/call "
+                f"{len(model_prompts)}: {prompt[:300]!r}"
+            )
+
+        return subprocess.CompletedProcess(
+            argv,
+            0,
+            stdout=json.dumps(payload),
+            stderr="",
+        )
 
     def run_real_generation(**kwargs):
         return real_generate_draft(
             **kwargs,
-            runner=lambda argv, **_runner_kwargs: subprocess.CompletedProcess(
-                argv,
-                0,
-                stdout=json.dumps(next(generation_outputs)),
-                stderr="",
-            ),
+            runner=staged_runner,
         )
 
     monkeypatch.setattr(cli, "generate_draft", run_real_generation)
 
     run_generate_drafts(config_path)
+
+    assert len(model_prompts) == 2
+    assert "Prompt version: factual-v8" in model_prompts[0]
+    assert "Prompt version: editorial-v16" in model_prompts[1]
 
     rows = {
         row["dedupe_key"]: row["status"]
@@ -1076,7 +1133,12 @@ def test_generate_assets_skips_legacy_articles_without_visual_brief(
     legacy_payload = {
         key: value
         for key, value in visual_payload().items()
-        if key not in {"editorial_profile", "visual_brief", "visual_assets"}
+        if key not in {
+            "editorial_profile",
+            "visual_brief",
+            "visual_assets",
+            "article_layout",
+        }
     }
     final_path.write_text(json.dumps(legacy_payload), encoding="utf-8")
     monkeypatch.setattr(
@@ -1108,7 +1170,12 @@ def test_generate_assets_skips_legacy_named_final_articles(
     legacy_payload = {
         key: value
         for key, value in visual_payload().items()
-        if key not in {"editorial_profile", "visual_brief", "visual_assets"}
+        if key not in {
+            "editorial_profile",
+            "visual_brief",
+            "visual_assets",
+            "article_layout",
+        }
     }
     legacy_path.write_text(json.dumps(legacy_payload), encoding="utf-8")
     monkeypatch.setattr(
