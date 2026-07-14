@@ -330,7 +330,13 @@ def validate_generation_payload(
             visual_brief_warnings.append(f)
     before_schema_warnings.extend(visual_brief_warnings)
 
-    if set(fields) == FINAL_FIELDS and not before_schema_hard:
+    if (
+        (
+            set(fields) == FINAL_FIELDS
+            or set(fields) == FINAL_FIELDS - {"article_layout"}
+        )
+        and not before_schema_hard
+    ):
         try:
             normalize_final_payload(fields)
         except FinalSchemaError as exc:

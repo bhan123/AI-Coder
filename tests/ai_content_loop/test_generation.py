@@ -17,6 +17,7 @@ from ai_content_loop.generation import (
     parse_generation_output,
     validate_generation_payload,
 )
+from ai_content_loop.editorial.schema import empty_article_layout
 
 
 SOURCE_URL = "https://github.com/owner/repo"
@@ -161,6 +162,7 @@ def enriched_payload() -> dict:
                 ],
             },
             "visual_assets": {"cover": None, "body": []},
+            "article_layout": empty_article_layout(),
         }
     )
     return payload

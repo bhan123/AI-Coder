@@ -11,7 +11,7 @@ from PIL import Image
 from ai_content_loop import cli, generation
 from ai_content_loop.config import load_config
 from ai_content_loop.db import ContentStore
-from ai_content_loop.editorial.schema import article_id_for
+from ai_content_loop.editorial.schema import article_id_for, empty_article_layout
 from ai_content_loop.generation import GenerationOutcome
 from ai_content_loop.models import CandidateScore, SourceItem
 from ai_content_loop.visuals.renderer import BODY_SIZE, COVER_SIZE
@@ -97,6 +97,7 @@ def visual_payload(dedupe_key: str = "github:owner/repo") -> dict:
             ],
         },
         "visual_assets": {"cover": None, "body": []},
+        "article_layout": empty_article_layout(),
     }
 
 
@@ -1076,7 +1077,12 @@ def test_generate_assets_skips_legacy_articles_without_visual_brief(
     legacy_payload = {
         key: value
         for key, value in visual_payload().items()
-        if key not in {"editorial_profile", "visual_brief", "visual_assets"}
+        if key not in {
+            "editorial_profile",
+            "visual_brief",
+            "visual_assets",
+            "article_layout",
+        }
     }
     final_path.write_text(json.dumps(legacy_payload), encoding="utf-8")
     monkeypatch.setattr(
@@ -1108,7 +1114,12 @@ def test_generate_assets_skips_legacy_named_final_articles(
     legacy_payload = {
         key: value
         for key, value in visual_payload().items()
-        if key not in {"editorial_profile", "visual_brief", "visual_assets"}
+        if key not in {
+            "editorial_profile",
+            "visual_brief",
+            "visual_assets",
+            "article_layout",
+        }
     }
     legacy_path.write_text(json.dumps(legacy_payload), encoding="utf-8")
     monkeypatch.setattr(
