@@ -108,13 +108,16 @@ def test_rich_article_fallback_has_no_external_navigation_or_resources():
         {"theme": "press", "blocks": []},
         fallback_title="标题",
         fallback_markdown=(
-            "[来源](https://example.com/source)\n\n"
-            "![远程图片](https://example.com/remote.png)"
+            "[HTTPS](https://example.com/source) [协议相对](//example.com/a) "
+            "[相对路径](/outside) [其他协议](mailto:owner@example.com)\n\n"
+            "![HTTPS 图](https://example.com/remote.png) "
+            "![协议相对图](//example.com/remote.png) "
+            "![相对图](/remote.png)"
         ),
     )
 
-    assert 'href="https://example.com/source"' not in html
-    assert 'src="https://example.com/remote.png"' not in html
+    assert "href=" not in html
+    assert "src=" not in html
 
 
 def test_render_rich_article_falls_back_for_an_empty_or_untrusted_layout():

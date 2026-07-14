@@ -17,14 +17,15 @@ _BLOCK_FIELDS = {
     "callout": {"type", "text"},
     "source_note": {"type", "url", "attribution"},
 }
-_EXTERNAL_HTTP_HREF = re.compile(
-    r"\s+href=(?:\"https?://[^\"]*\"|'https?://[^']*')",
+_HREF_ATTRIBUTE = re.compile(
+    r"\s+href=(?:\"(?P<double>[^\"]*)\"|'(?P<single>[^']*)')",
     re.IGNORECASE,
 )
-_EXTERNAL_HTTP_IMAGE = re.compile(
-    r"<img\b[^>]*\bsrc=(?:\"https?://[^\"]*\"|'https?://[^']*')[^>]*>",
+_IMAGE_TAG = re.compile(
+    r"<img\b[^>]*>",
     re.IGNORECASE,
 )
+_TOC_HREF = re.compile(r"#section-[1-9][0-9]*\Z")
 
 
 def _nonempty_text(value: object) -> bool:
@@ -103,10 +104,14 @@ def _fallback_html(*, title: object, markdown: object) -> str:
     )
 
 
-def _without_external_network_resources(html: str) -> str:
-    """Keep readable link text while removing browser-fetchable HTTP(S) URLs."""
+def _allow_only_safe_reading_attributes(html: str) -> str:
+    """Leave only renderer-owned table-of-contents anchors and no fallback images."""
 
-    return _EXTERNAL_HTTP_HREF.sub("", _EXTERNAL_HTTP_IMAGE.sub("", html))
+    def allow_toc_anchor(match: re.Match[str]) -> str:
+        href = match.group("double") or match.group("single") or ""
+        return f' href="{href}"' if _TOC_HREF.fullmatch(href) else ""
+
+    return _IMAGE_TAG.sub("", _HREF_ATTRIBUTE.sub(allow_toc_anchor, html))
 
 
 def _render_block(block: dict[str, object], section_index: int) -> str:
@@ -171,7 +176,7 @@ def render_rich_article(
     """Render trusted semantic blocks, never model-owned markup or styles."""
 
     if not _trusted_press_layout(article_layout) or not article_layout["blocks"]:
-        return _without_external_network_resources(
+        return _allow_only_safe_reading_attributes(
             _fallback_html(title=fallback_title, markdown=fallback_markdown)
         )
 
@@ -198,7 +203,7 @@ def render_rich_article(
         if block["type"] == "section":
             section_index += 1
         rendered.append(_render_block(block, section_index))
-    return _without_external_network_resources(
+    return _allow_only_safe_reading_attributes(
         '<article class="rich-article">'
         f"{toc_html}{''.join(rendered)}"
         "</article>"

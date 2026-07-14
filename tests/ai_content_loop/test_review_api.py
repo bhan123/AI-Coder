@@ -314,6 +314,31 @@ def test_rich_preview_keeps_source_urls_as_non_navigable_text(review_app):
     assert "target=" not in html
 
 
+def test_rich_preview_fallback_allows_no_protocol_relative_url(review_app):
+    article_path = Path(review_app.config["FINAL_DIR"]) / "repo.json"
+    payload = json.loads(article_path.read_text(encoding="utf-8"))
+    payload["master_markdown"] = "[绕过](//example.com/path)\n\n![图](//example.com/a.png)"
+    payload["article_layout"] = {"theme": "press", "blocks": []}
+    article_path.write_text(
+        json.dumps(payload, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    client = review_app.test_client()
+    csrf = login(client)
+    article_id = client.get("/api/articles").get_json()["articles"][0][
+        "article_id"
+    ]
+
+    html = client.post(
+        "/api/rich-preview",
+        json={"article_id": article_id},
+        headers={"X-CSRF-Token": csrf},
+    ).get_json()["html"]
+
+    assert "href=" not in html
+    assert "src=" not in html
+
+
 def test_review_page_contains_editor_shell(review_app):
     client = review_app.test_client()
     login(client)
