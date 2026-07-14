@@ -718,6 +718,21 @@ def test_rich_preview_stays_inside_the_single_scrollable_workspace(
     assert "min-height: 420px" not in css
 
 
+def test_review_layout_keeps_rich_preview_in_scrollable_workspace():
+    css = (
+        Path(__file__).parents[2]
+        / "ai_content_loop"
+        / "review"
+        / "static"
+        / "review.css"
+    ).read_text(encoding="utf-8")
+
+    workspace_rules = css.split(".workspace {", 1)[1].split("}", 1)[0]
+    assert "min-height: 0;" in workspace_rules
+    assert "overflow-x: hidden;" in workspace_rules
+    assert "overflow-y: auto;" in workspace_rules
+
+
 def test_rich_preview_runtime_discards_stale_response_and_recovers_button():
     script_path = (
         Path(__file__).parents[2]
