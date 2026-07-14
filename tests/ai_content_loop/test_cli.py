@@ -606,12 +606,16 @@ def test_generate_drafts_isolates_invalid_bundle_and_continues(
     bad_path.parent.mkdir(parents=True)
     bad_path.write_text(json.dumps(invalid_bundle), encoding="utf-8")
     good_url = "https://github.com/owner/good"
+    good_title = "A sufficiently descriptive title"
+    good_summary = "A sufficiently detailed grounded draft body with facts."
     good_path.write_text(
         json.dumps(
             {
                 "dedupe_key": "github:owner/good",
                 "source_url": good_url,
                 "source_title": "Good source",
+                "title": good_title,
+                "facts": [good_summary],
             }
         ),
         encoding="utf-8",
@@ -639,15 +643,11 @@ def test_generate_drafts_isolates_invalid_bundle_and_continues(
     good_payload = {
         "dedupe_key": "github:owner/good",
         "column": "AI discoveries",
-        "master_title": "A sufficiently descriptive title",
-        "master_markdown": (
-            "A sufficiently detailed grounded draft body with facts. "
-            f"Source: {good_url}"
-        ),
+        "master_title": good_title,
+        "master_markdown": f"{good_summary} Source: {good_url}",
         "platform_markdown": {
             platform: (
-                "A sufficiently detailed platform draft body with facts. "
-                f"Source: {good_url}"
+                f"{good_summary} Source: {good_url}"
             )
             for platform in generation.PLATFORMS
         },
@@ -693,6 +693,29 @@ def test_generate_drafts_isolates_invalid_bundle_and_continues(
             ],
         },
         "visual_assets": {"cover": None, "body": []},
+        "article_layout": {
+            "theme": "press",
+            "blocks": [
+                {
+                    "type": "hero",
+                    "title": good_title,
+                    "deck": good_summary,
+                },
+                {"type": "lead", "text": good_summary},
+                {"type": "key_judgment", "text": good_summary},
+                {
+                    "type": "section",
+                    "heading": good_title,
+                    "paragraphs": [good_summary],
+                },
+                {"type": "callout", "text": good_summary},
+                {
+                    "type": "source_note",
+                    "url": good_url,
+                    "attribution": good_title,
+                },
+            ],
+        },
     }
     good_factual_payload = {
         key: good_payload[key]
