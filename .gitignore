@@ -1,0 +1,35 @@
+/itw取数-20260429
+/robot_data_engine
+# 数据文件
+*.xlsx
+*.xls
+*.csv
+*.parquet
+*.duckdb
+
+# 日志文件
+*.log
+
+# 输出和日志文件夹
+output/
+logs/
+ITF_DATA/config/itf_mysql_sync.toml
+
+# Pytest 临时目录
+/ITF_DATA/.pytest_cache/
+/ITF_DATA/.pytest_tmp/
+/ITF_DATA/.pytest_tmp*/
+
+# Python 编译文件
+__pycache__/
+*.pyc
+
+# 本地隔离开发工作区
+/.worktrees/
+
+# AI 内容闭环运行产物
+/ai_content_loop/data/
+/ai_content_loop/out/
+
+# 本地内容审阅凭据
+/review.env

@@ -1,0 +1,29 @@
+database_path = "data/ai_content_loop.sqlite3"
+output_dir = "out"
+daily_raw_limit = 200
+daily_deep_limit = 10
+publish_limit = 2
+# 混合打分：关键词预筛后交给 LLM 精选的候选数（0 = 纯关键词，不调用 LLM）
+scoring_llm_limit = 50
+# 深度研究：是否抓取源内容（GitHub README、HN 评论等）增强证据包
+deep_research_enabled = false
+hermes_command = "hermes"
+generation_timeout_seconds = 600
+generation_retries = 1
+# Optional. Relative paths resolve from the directory containing this file.
+# visual_font_path = "fonts/NotoSansCJK-Regular.ttc"
+# Stage 1 intentionally serializes local visual rendering.
+visual_render_concurrency = 1
+producthunt_token = ""
+official_rss_feeds = [
+  "https://openai.com/news/rss.xml",
+  "https://blog.google/technology/ai/rss/"
+]
+
+[source_limits]
+github = 30
+hackernews = 30
+arxiv = 30
+modelscope = 30
+producthunt = 20
+official_rss = 30

@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="{{ csrf_token }}">
+  <title>AI 内容审阅台</title>
+  <link
+    rel="stylesheet"
+    href="{{ url_for('static', filename='review.css') }}"
+  >
+  <script
+    src="{{ url_for('static', filename='review.js') }}"
+    defer
+  ></script>
+</head>
+<body>
+  <header class="topbar">
+    <button
+      id="sidebar-button"
+      class="icon-button mobile-only"
+      type="button"
+      aria-label="打开文章列表"
+    >☰</button>
+    <div>
+      <strong>AI 内容审阅台</strong>
+      <span class="muted">Hermes 生成 · 人工把关</span>
+    </div>
+    <div class="topbar-user">
+      <span>{{ username }}</span>
+      <button id="logout-button" class="quiet" type="button">退出</button>
+    </div>
+  </header>
+
+  <main class="review-layout">
+    <aside id="article-sidebar" class="article-sidebar">
+      <div class="sidebar-heading">
+        <h1>文章</h1>
+        <select id="status-filter" aria-label="审核状态">
+          <option value="">全部</option>
+          <option value="needs_human_review">待审核</option>
+          <option value="approved">已通过</option>
+          <option value="revision_requested">已退回</option>
+        </select>
+      </div>
+      <div
+        id="article-list"
+        class="article-list"
+        aria-live="polite"
+      ></div>
+    </aside>
+
+    <section class="workspace">
+      <div id="empty-state" class="empty-state">
+        <h2>选择一篇文章开始审阅</h2>
+        <p>左侧是 Hermes 已经生成的待发布内容。</p>
+      </div>
+
+      <div id="editor-shell" class="editor-shell" hidden>
+        <div class="article-fields">
+          <label>
+            标题
+            <input id="article-title" maxlength="200000">
+          </label>
+          <label>
+            栏目
+            <input id="article-column" maxlength="200000">
+          </label>
+        </div>
+
+        <nav class="platform-tabs" aria-label="内容版本">
+          <button type="button" data-platform="master">母稿</button>
+          <button type="button" data-platform="wechat">公众号</button>
+          <button type="button" data-platform="xiaohongshu">小红书</button>
+          <button type="button" data-platform="toutiao">今日头条</button>
+          <button type="button" data-platform="zhihu">知乎</button>
+        </nav>
+
+        <div
+          id="quality-warnings"
+          class="quality-warnings"
+          hidden
+        ></div>
+
+        <section id="visual-panel" class="visual-panel">
+          <div class="visual-card">
+            <span class="pane-title">公众号封面</span>
+            <img
+              id="cover-preview"
+              alt="公众号封面预览"
+              loading="lazy"
+              hidden
+            >
+            <span id="cover-placeholder" class="visual-placeholder">
+              尚未生成
+            </span>
+          </div>
+          <div class="visual-card">
+            <span class="pane-title">正文插图</span>
+            <img
+              id="body-image-preview"
+              alt="正文插图预览"
+              loading="lazy"
+              hidden
+            >
+            <span id="body-placeholder" class="visual-placeholder">
+              尚未生成
+            </span>
+          </div>
+          <div class="visual-controls">
+            <label>
+              梗图模板
+              <select id="visual-template">
+                <option value="boss_vs_worker">老板 vs 打工人</option>
+                <option value="expectation_vs_reality">预期 vs 现实</option>
+                <option value="ai_done_vs_tests">AI 写完 vs 测试打开</option>
+                <option value="before_vs_after">使用前 vs 使用后</option>
+                <option value="do_vs_dont">能干 vs 别干</option>
+                <option value="one_line_verdict">一句话判决</option>
+              </select>
+            </label>
+            <button id="next-copy-button" class="quiet" type="button">
+              换一句梗
+            </button>
+            <button id="render-visuals-button" class="primary" type="button">
+              应用模板
+            </button>
+          </div>
+        </section>
+
+        <div class="mobile-view-switch mobile-only">
+          <button
+            id="show-editor-button"
+            class="selected"
+            type="button"
+          >编辑</button>
+          <button id="show-preview-button" type="button">预览</button>
+        </div>
+
+        <div id="content-panes" class="content-panes show-editor">
+          <section class="editor-pane">
+            <div class="pane-title">Markdown</div>
+            <textarea
+              id="markdown-editor"
+              spellcheck="false"
+              aria-label="Markdown 正文"
+            ></textarea>
+          </section>
+          <section class="preview-pane">
+            <div class="pane-title">发布排版预览</div>
+            <article
+              id="article-preview"
+              class="article-preview"
+            ></article>
+          </section>
+        </div>
+
+        <footer class="actionbar">
+          <div>
+            <button
+              id="history-button"
+              class="quiet"
+              type="button"
+            >历史版本</button>
+            <button
+              id="copy-button"
+              class="quiet"
+              type="button"
+            >复制正文</button>
+          </div>
+          <div>
+            <button
+              id="reject-button"
+              class="danger"
+              type="button"
+            >退回</button>
+            <button
+              id="approve-button"
+              class="success"
+              type="button"
+            >通过</button>
+            <button
+              id="save-button"
+              class="primary"
+              type="button"
+            >保存修改</button>
+          </div>
+        </footer>
+      </div>
+    </section>
+  </main>
+
+  <div
+    id="notification"
+    class="notification"
+    role="status"
+    aria-live="polite"
+    hidden
+  ></div>
+
+  <dialog id="history-dialog">
+    <header>
+      <h2>历史版本</h2>
+      <button
+        id="history-close-button"
+        class="icon-button"
+        type="button"
+        aria-label="关闭"
+      >×</button>
+    </header>
+    <div id="history-list"></div>
+  </dialog>
+</body>
+</html>

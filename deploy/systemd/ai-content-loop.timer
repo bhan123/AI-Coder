@@ -1,0 +1,10 @@
+[Unit]
+Description=Run AI content loop every day at 08:00 Asia/Shanghai
+
+[Timer]
+OnCalendar=*-*-* 08:00:00 Asia/Shanghai
+Persistent=true
+Unit=ai-content-loop.service
+
+[Install]
+WantedBy=timers.target

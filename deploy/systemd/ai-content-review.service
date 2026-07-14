@@ -1,0 +1,24 @@
+[Unit]
+Description=AI content browser review desk
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=agentuser
+Group=agentuser
+WorkingDirectory=/opt/ai-content-loop/repo
+EnvironmentFile=/opt/ai-content-loop/review.env
+Environment=PYTHONUNBUFFERED=1
+UMask=0077
+ExecStart=/opt/ai-content-loop/venv/bin/gunicorn --workers 1 --threads 4 --bind 127.0.0.1:8765 --access-logfile - --error-logfile - ai_content_loop.review.wsgi:app
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/ai-content-loop/out /opt/ai-content-loop/data
+
+[Install]
+WantedBy=multi-user.target
