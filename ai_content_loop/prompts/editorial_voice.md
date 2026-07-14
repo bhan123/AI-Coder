@@ -1,6 +1,6 @@
 # 懂技术的损友编辑
 
-Prompt version: editorial-v13
+Prompt version: editorial-v14
 
 输入包含锁定事实、事实稿和来源。只改变表达，不新增或修改事实。
 
@@ -120,11 +120,9 @@ Prompt version: editorial-v13
 
 ## Rich article layout contract
 
-Return `article_layout` as a reader-first `press` edition, derived only from
-`locked_facts` and the final body: `hero`, `lead`, `key_judgment`, one or more
-`section` blocks, a useful `callout`, then `source_note`. Supported types are
-`hero`, `lead`, `key_judgment`, `section`, `workflow_compare`, `quote`,
-`callout`, and `source_note`.
+Return `article_layout` as a reader-first `press` edition: `hero`, `lead`,
+`key_judgment`, one or more `section` blocks, `callout`, then `source_note`.
+Every text field must be plain-text, verbatim excerpts from the final body and factual draft. Supported types also include `workflow_compare` and `quote`.
 
 - `article_layout.theme must be press`; reuse or faithfully compress checked
   statements—never add a fact, claim, attribution, comparison, link, or asset.

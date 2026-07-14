@@ -120,38 +120,40 @@ def valid_core_payload() -> dict:
 
 
 def press_layout() -> dict:
+    payload = valid_core_payload()
+    title = payload["master_title"]
+    paragraph = payload["master_markdown"].split("\n\n", 1)[0]
     return {
         "theme": "press",
         "blocks": [
             {
                 "type": "hero",
-                "title": "这个开源项目值得认真看看",
-                "deck": "先把可验证的价值放在读者眼前。",
+                "title": title,
+                "deck": paragraph,
             },
             {
                 "type": "lead",
-                "text": "先说结论：它把需要反复核验的流程变得更清楚。",
+                "text": paragraph,
             },
             {
                 "type": "key_judgment",
-                "text": "真正的价值不在替人下结论，而在缩短验证路径。",
+                "text": paragraph,
             },
             {
                 "type": "section",
-                "heading": "它解决了什么问题",
+                "heading": title,
                 "paragraphs": [
-                    "项目背景和核心功能都需要回到原始资料核验。",
-                    "适用边界必须和收益判断一起交代清楚。",
+                    paragraph,
                 ],
             },
             {
                 "type": "callout",
-                "text": "不要把模型输出当成来源，来源仍要能被读者追溯。",
+                "text": paragraph,
             },
             {
                 "type": "source_note",
                 "url": SOURCE_URL,
-                "attribution": "项目原始页面",
+                "attribution": title,
             },
         ],
     }
@@ -261,6 +263,27 @@ def test_generate_runs_factual_then_editorial_pass(tmp_path):
     assert outcome.attempts == 2
     assert "只写事实稿" in calls[0]
     assert "懂技术的损友" in calls[1]
+
+
+def test_generate_retries_when_new_editorial_layout_uses_legacy_fallback(tmp_path):
+    empty_layout_payload = enriched_payload()
+    empty_layout_payload["article_layout"] = {
+        "theme": "press",
+        "blocks": [],
+    }
+    outputs = [valid_core_payload(), empty_layout_payload, enriched_payload()]
+
+    def runner(argv, **kwargs):
+        payload = outputs.pop(0)
+        return subprocess.CompletedProcess(
+            argv, 0, stdout=json.dumps(payload, ensure_ascii=False), stderr=""
+        )
+
+    outcome = run_generation(tmp_path, runner, retries=1)
+
+    assert outcome.status == "generated"
+    assert outcome.attempts == 3
+    assert outputs == []
 
 
 def test_editorial_retry_reuses_valid_factual_pass(tmp_path):
@@ -1851,6 +1874,123 @@ def test_validator_rejects_layout_source_url_not_present_in_locked_facts():
     assert warnings == []
 
 
+def test_validator_keeps_empty_layout_compatible_but_rejects_it_for_new_generation():
+    payload = enriched_payload()
+    payload["article_layout"] = {"theme": "press", "blocks": []}
+
+    legacy_hard, _warnings = validate_generation_payload(
+        payload,
+        dedupe_key=DEDUPE_KEY,
+        source_url=SOURCE_URL,
+    )
+    new_generation_hard, _warnings = validate_generation_payload(
+        payload,
+        dedupe_key=DEDUPE_KEY,
+        source_url=SOURCE_URL,
+        require_rich_layout=True,
+        layout_fact_evidence=valid_core_payload(),
+    )
+
+    assert legacy_hard == []
+    assert new_generation_hard == ["article_layout:missing_required_blocks"]
+
+
+def test_validator_requires_all_reader_first_blocks_for_new_generation():
+    payload = enriched_payload()
+    payload["article_layout"]["blocks"] = [
+        block
+        for block in payload["article_layout"]["blocks"]
+        if block["type"] != "callout"
+    ]
+
+    hard, warnings = validate_generation_payload(
+        payload,
+        dedupe_key=DEDUPE_KEY,
+        source_url=SOURCE_URL,
+        require_rich_layout=True,
+        layout_fact_evidence=valid_core_payload(),
+    )
+
+    assert hard == ["article_layout:missing_required_blocks"]
+    assert warnings == []
+
+
+@pytest.mark.parametrize(
+    ("unsafe_text", "failure"),
+    [
+        ("**not plain text**", "article_layout:unsafe_markdown"),
+        ("url(//cdn.example/asset.png)", "article_layout:unsafe_css"),
+        ("//cdn.example/asset.png", "article_layout:unapproved_url"),
+        ("const render = () => null", "article_layout:unsafe_code"),
+    ],
+)
+def test_validator_rejects_non_plain_layout_text(unsafe_text, failure):
+    payload = enriched_payload()
+    payload["article_layout"]["blocks"][1]["text"] = unsafe_text
+
+    hard, warnings = validate_generation_payload(
+        payload,
+        dedupe_key=DEDUPE_KEY,
+        source_url=SOURCE_URL,
+    )
+
+    assert hard == [failure]
+    assert warnings == []
+    assert unsafe_text not in " ".join(hard)
+
+
+def test_validator_rejects_non_http_source_note_scheme_without_echoing_url():
+    payload = enriched_payload()
+    unsafe_url = "file:///private/model-output"
+    payload["article_layout"]["blocks"][-1]["url"] = unsafe_url
+
+    hard, _warnings = validate_generation_payload(
+        payload,
+        dedupe_key=DEDUPE_KEY,
+        source_url=SOURCE_URL,
+    )
+
+    assert hard == ["article_layout:invalid_schema"]
+    assert unsafe_url not in " ".join(hard)
+
+
+def test_validator_rejects_layout_fact_not_present_in_body_or_evidence():
+    payload = enriched_payload()
+    injected_fact = "它已经为十万家公司节省了九成成本"
+    payload["article_layout"]["blocks"][1]["text"] = injected_fact
+
+    hard, warnings = validate_generation_payload(
+        payload,
+        dedupe_key=DEDUPE_KEY,
+        source_url=SOURCE_URL,
+        require_rich_layout=True,
+        layout_fact_evidence=valid_core_payload(),
+    )
+
+    assert hard == ["article_layout:not_grounded_in_body"]
+    assert warnings == []
+    assert injected_fact not in " ".join(hard)
+
+
+def test_validator_rejects_layout_fact_present_only_in_unverified_body():
+    payload = enriched_payload()
+    injected_fact = "这条未经核验的正文说法不能进入布局"
+    payload["master_markdown"] += f"\n\n{injected_fact}"
+    payload["article_layout"]["blocks"][1]["text"] = injected_fact
+
+    hard, warnings = validate_generation_payload(
+        payload,
+        dedupe_key=DEDUPE_KEY,
+        source_url=SOURCE_URL,
+        require_rich_layout=True,
+        layout_fact_evidence=valid_core_payload(),
+    )
+
+    assert hard == ["article_layout:not_grounded_in_fact_evidence"]
+    assert warnings == []
+    assert injected_fact not in " ".join(hard)
+
+
 def test_validator_reports_platform_target_lengths_as_review_warnings():
     payload = enriched_payload()
     short_body = (
@@ -1916,7 +2056,7 @@ def test_active_prompts_state_two_pass_contracts():
     assert "读者回报" in scoring_prompt
     assert "没有公开 Demo、可用入口或强情绪价值" in scoring_prompt
     assert "# 懂技术的损友编辑" in editorial_prompt
-    assert "Prompt version: editorial-v13" in editorial_prompt
+    assert "Prompt version: editorial-v14" in editorial_prompt
     assert "输入包含锁定事实、事实稿和来源。只改变表达，不新增或修改事实。" in editorial_prompt
     assert "## 人格" in editorial_prompt
     assert "懂技术的朋友 45%，产品经理 + 数据工程师 35%" in editorial_prompt
@@ -1958,6 +2098,7 @@ def test_active_prompts_state_two_pass_contracts():
     assert "article_layout.theme must be press" in editorial_prompt
     assert "Never emit HTML, CSS, JavaScript, JSX, Markdown links" in editorial_prompt
     assert "source_note.url must exactly equal locked_facts.source_url" in editorial_prompt
+    assert "plain-text, verbatim excerpts from the final body and factual draft" in editorial_prompt
     assert '"humor_level": "balanced"' in editorial_prompt
     assert '"humor_level": "spicy"' not in editorial_prompt
     assert "[来源1]" not in combined_prompts
