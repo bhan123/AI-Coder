@@ -19,6 +19,11 @@ from ai_content_loop.generation import (
 )
 SOURCE_URL = "https://github.com/owner/repo"
 DEDUPE_KEY = "github:owner/repo"
+SOURCE_TITLE = "这个开源项目值得认真看看"
+SOURCE_SUMMARY = (
+    "这是一份包含充分事实依据的完整内容草稿，涵盖项目背景、核心功能、"
+    "典型用法、适用边界和实际限制，并用具体场景解释流程变化与注意事项。"
+)
 PROMPTS_DIR = Path(__file__).parents[2] / "ai_content_loop" / "prompts"
 FACTUAL_PROMPT_PATH = PROMPTS_DIR / "factual_draft.md"
 EDITORIAL_PROMPT_PATH = PROMPTS_DIR / "editorial_voice.md"
@@ -102,20 +107,25 @@ def wait_for_pid_exit(pid: int, timeout: float) -> bool:
 
 
 def valid_core_payload() -> dict:
-    paragraph = (
-        "这是一份包含充分事实依据的完整内容草稿，涵盖项目背景、核心功能、"
-        "典型用法、适用边界和实际限制，并用具体场景解释流程变化与注意事项。"
-    )
-    body = "\n\n".join([paragraph] * 20) + f"\n\n来源：{SOURCE_URL}"
+    body = "\n\n".join([SOURCE_SUMMARY] * 20) + f"\n\n来源：{SOURCE_URL}"
     return {
         "dedupe_key": DEDUPE_KEY,
         "column": "开源项目淘金",
-        "master_title": "这个开源项目值得认真看看",
+        "master_title": SOURCE_TITLE,
         "master_markdown": body,
         "platform_markdown": {
             platform: body
             for platform in PLATFORMS
         },
+    }
+
+
+def locked_layout_evidence() -> dict:
+    return {
+        "dedupe_key": DEDUPE_KEY,
+        "source_url": SOURCE_URL,
+        "title": SOURCE_TITLE,
+        "facts": [SOURCE_SUMMARY],
     }
 
 
@@ -221,6 +231,8 @@ def write_bundle(tmp_path: Path) -> Path:
                 "dedupe_key": DEDUPE_KEY,
                 "source_url": SOURCE_URL,
                 "source_title": "A useful repository",
+                "title": SOURCE_TITLE,
+                "facts": [SOURCE_SUMMARY],
             }
         ),
         encoding="utf-8",
@@ -272,6 +284,28 @@ def test_generate_retries_when_new_editorial_layout_uses_legacy_fallback(tmp_pat
         "blocks": [],
     }
     outputs = [valid_core_payload(), empty_layout_payload, enriched_payload()]
+
+    def runner(argv, **kwargs):
+        payload = outputs.pop(0)
+        return subprocess.CompletedProcess(
+            argv, 0, stdout=json.dumps(payload, ensure_ascii=False), stderr=""
+        )
+
+    outcome = run_generation(tmp_path, runner, retries=1)
+
+    assert outcome.status == "generated"
+    assert outcome.attempts == 3
+    assert outputs == []
+
+
+def test_generate_rejects_factual_draft_self_attestation_as_layout_evidence(tmp_path):
+    forged_fact = "该项目已经让十万家公司节省九成成本"
+    factual_payload = valid_core_payload()
+    factual_payload["master_markdown"] += f"\n\n{forged_fact}"
+    forged_editorial = enriched_payload()
+    forged_editorial["master_markdown"] += f"\n\n{forged_fact}"
+    forged_editorial["article_layout"]["blocks"][1]["text"] = forged_fact
+    outputs = [factual_payload, forged_editorial, enriched_payload()]
 
     def runner(argv, **kwargs):
         payload = outputs.pop(0)
@@ -1888,7 +1922,7 @@ def test_validator_keeps_empty_layout_compatible_but_rejects_it_for_new_generati
         dedupe_key=DEDUPE_KEY,
         source_url=SOURCE_URL,
         require_rich_layout=True,
-        layout_fact_evidence=valid_core_payload(),
+        layout_fact_evidence=locked_layout_evidence(),
     )
 
     assert legacy_hard == []
@@ -1908,7 +1942,7 @@ def test_validator_requires_all_reader_first_blocks_for_new_generation():
         dedupe_key=DEDUPE_KEY,
         source_url=SOURCE_URL,
         require_rich_layout=True,
-        layout_fact_evidence=valid_core_payload(),
+        layout_fact_evidence=locked_layout_evidence(),
     )
 
     assert hard == ["article_layout:missing_required_blocks"]
@@ -1919,9 +1953,24 @@ def test_validator_requires_all_reader_first_blocks_for_new_generation():
     ("unsafe_text", "failure"),
     [
         ("**not plain text**", "article_layout:unsafe_markdown"),
+        ("*italic*", "article_layout:unsafe_markdown"),
+        ("_italic_", "article_layout:unsafe_markdown"),
+        ("[reference][id]", "article_layout:unsafe_markdown"),
         ("url(//cdn.example/asset.png)", "article_layout:unsafe_css"),
+        ("color: red;", "article_layout:unsafe_css"),
+        (".x { color:red }", "article_layout:unsafe_css"),
         ("//cdn.example/asset.png", "article_layout:unapproved_url"),
+        ("example.com", "article_layout:unapproved_url"),
+        ("www.example.com", "article_layout:unapproved_url"),
+        ("docs.example", "article_layout:unapproved_url"),
+        ("127.0.0.1", "article_layout:unapproved_url"),
+        ("./asset", "article_layout:unsafe_path"),
+        ("../parent", "article_layout:unsafe_path"),
+        ("/root", "article_layout:unsafe_path"),
+        (r"C:\private\asset", "article_layout:unsafe_path"),
         ("const render = () => null", "article_layout:unsafe_code"),
+        ("def render(): pass", "article_layout:unsafe_code"),
+        ("print(1)", "article_layout:unsafe_code"),
     ],
 )
 def test_validator_rejects_non_plain_layout_text(unsafe_text, failure):
@@ -1964,7 +2013,7 @@ def test_validator_rejects_layout_fact_not_present_in_body_or_evidence():
         dedupe_key=DEDUPE_KEY,
         source_url=SOURCE_URL,
         require_rich_layout=True,
-        layout_fact_evidence=valid_core_payload(),
+        layout_fact_evidence=locked_layout_evidence(),
     )
 
     assert hard == ["article_layout:not_grounded_in_body"]
@@ -1983,7 +2032,7 @@ def test_validator_rejects_layout_fact_present_only_in_unverified_body():
         dedupe_key=DEDUPE_KEY,
         source_url=SOURCE_URL,
         require_rich_layout=True,
-        layout_fact_evidence=valid_core_payload(),
+        layout_fact_evidence=locked_layout_evidence(),
     )
 
     assert hard == ["article_layout:not_grounded_in_fact_evidence"]
@@ -2056,7 +2105,7 @@ def test_active_prompts_state_two_pass_contracts():
     assert "读者回报" in scoring_prompt
     assert "没有公开 Demo、可用入口或强情绪价值" in scoring_prompt
     assert "# 懂技术的损友编辑" in editorial_prompt
-    assert "Prompt version: editorial-v14" in editorial_prompt
+    assert "Prompt version: editorial-v15" in editorial_prompt
     assert "输入包含锁定事实、事实稿和来源。只改变表达，不新增或修改事实。" in editorial_prompt
     assert "## 人格" in editorial_prompt
     assert "懂技术的朋友 45%，产品经理 + 数据工程师 35%" in editorial_prompt
@@ -2098,7 +2147,8 @@ def test_active_prompts_state_two_pass_contracts():
     assert "article_layout.theme must be press" in editorial_prompt
     assert "Never emit HTML, CSS, JavaScript, JSX, Markdown links" in editorial_prompt
     assert "source_note.url must exactly equal locked_facts.source_url" in editorial_prompt
-    assert "plain-text, verbatim excerpts from the final body and factual draft" in editorial_prompt
+    assert "plain-text, verbatim excerpts from the final body and locked source fields" in editorial_prompt
+    assert "Never use factual_draft as layout evidence" in editorial_prompt
     assert '"humor_level": "balanced"' in editorial_prompt
     assert '"humor_level": "spicy"' not in editorial_prompt
     assert "[来源1]" not in combined_prompts

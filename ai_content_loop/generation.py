@@ -76,18 +76,49 @@ _NEUTRAL_TITLE = "内容质量检查使用的中性标题"
 _ARTICLE_LAYOUT_MARKUP = re.compile(r"<\s*/?\s*[A-Za-z][^>]*>")
 _ARTICLE_LAYOUT_MARKDOWN_LINK = re.compile(r"!?\[[^\]]*\]\([^)]*\)")
 _ARTICLE_LAYOUT_MARKDOWN = re.compile(
-    r"(?m)(?:\*\*|__|~~|`|^\s*(?:#{1,6}\s|[-+*]\s+|\d+\.\s+|>\s))"
+    r"(?mx)(?:"
+    r"\*\*|__|~~|`|"
+    r"\*[^*\n]+\*|(?<!\w)_[^_\n]+_(?!\w)|"
+    r"\[[^\]\n]+\]\[[^\]\n]+\]|"
+    r"^\s*(?:\#{1,6}\s|[-+*]\s+|\d+\.\s+|>\s)"
+    r")"
 )
 _ARTICLE_LAYOUT_CSS = re.compile(
-    r"(?i)(?:url\s*\(|@import\b|\b(?:font-family|background|display|position)\s*:)"
+    r"(?i)(?:"
+    r"url\s*\(|@import\b|"
+    r"\b(?:color|font-family|background|display|position|margin|padding)\s*:|"
+    r"(?:^|\s)\.[A-Za-z_-][\w-]*\s*\{"
+    r")"
 )
 _ARTICLE_LAYOUT_CODE = re.compile(
-    r"(?i)(?:=>|\b(?:const|let|var|function|return|class|import|export)\b|(?:document|window|globalThis)\.)"
+    r"(?i)(?:"
+    r"=>|\b(?:const|let|var|function|return|class|import|export)\b|"
+    r"\bdef\s+\w+\s*\(|\bprint\s*\(|"
+    r"(?:document|window|globalThis)\."
+    r")"
 )
 _ARTICLE_LAYOUT_PROTOCOL = re.compile(
     r"(?i)\b[a-z][a-z0-9+.-]{1,31}:(?://|[^\s])"
 )
 _ARTICLE_LAYOUT_PROTOCOL_RELATIVE = re.compile(r"(?<!\w)//[^\s]+")
+_ARTICLE_LAYOUT_PATH = re.compile(
+    r"(?i)(?:^|[\s(])(?:\./|\.\./|/[^\s]+|[a-z]:[\\/][^\s]*)"
+)
+_ARTICLE_LAYOUT_BARE_DOMAIN = re.compile(
+    r"(?i)(?:^|[\s(])(?:www\.)?(?:[a-z0-9-]+\.)+[a-z]{2,24}"
+    r"(?=$|[\s/):,;.!?])"
+)
+_ARTICLE_LAYOUT_IP_ADDRESS = re.compile(
+    r"(?<!\d)(?:\d{1,3}\.){3}\d{1,3}(?!\d)"
+)
+_LOCKED_LAYOUT_EVIDENCE_FIELDS = (
+    "title",
+    "source_title",
+    "summary",
+    "source_summary",
+    "description",
+    "source_url",
+)
 _REQUIRED_RICH_LAYOUT_BLOCK_TYPES = {
     "hero",
     "lead",
@@ -249,15 +280,23 @@ def _normalized_text(value: str) -> str:
     return " ".join(value.split())
 
 
-def _fact_evidence_text(value: object) -> str:
-    """Flatten caller-supplied locked facts into a deterministic text corpus."""
-    if isinstance(value, str):
-        return value
-    if isinstance(value, dict):
-        return "\n".join(_fact_evidence_text(item) for item in value.values())
-    if isinstance(value, (list, tuple)):
-        return "\n".join(_fact_evidence_text(item) for item in value)
-    return ""
+def _locked_layout_evidence_text(value: object) -> str:
+    """Extract only collection-time evidence fields from a draft bundle.
+
+    The factual drafting model is deliberately excluded: it is model output,
+    not an authority for a subsequent layout claim.
+    """
+    if not isinstance(value, dict):
+        return ""
+    values = [
+        value[field]
+        for field in _LOCKED_LAYOUT_EVIDENCE_FIELDS
+        if isinstance(value.get(field), str)
+    ]
+    facts = value.get("facts")
+    if isinstance(facts, list):
+        values.extend(item for item in facts if isinstance(item, str))
+    return "\n".join(values)
 
 
 def _article_layout_safety_failure(
@@ -293,8 +332,15 @@ def _article_layout_safety_failure(
             return "article_layout:unsafe_css"
         if _ARTICLE_LAYOUT_CODE.search(text):
             return "article_layout:unsafe_code"
-        if _ARTICLE_LAYOUT_PROTOCOL.search(text) or _ARTICLE_LAYOUT_PROTOCOL_RELATIVE.search(text):
+        if (
+            _ARTICLE_LAYOUT_PROTOCOL.search(text)
+            or _ARTICLE_LAYOUT_PROTOCOL_RELATIVE.search(text)
+            or _ARTICLE_LAYOUT_BARE_DOMAIN.search(text)
+            or _ARTICLE_LAYOUT_IP_ADDRESS.search(text)
+        ):
             return "article_layout:unapproved_url"
+        if _ARTICLE_LAYOUT_PATH.search(text):
+            return "article_layout:unsafe_path"
         if "{{" in text or "}}" in text or "```" in text:
             return "article_layout:unsafe_render_instruction"
     return None
@@ -318,7 +364,9 @@ def _rich_layout_failure(
     if not _REQUIRED_RICH_LAYOUT_BLOCK_TYPES.issubset(block_types):
         return "article_layout:missing_required_blocks"
 
-    evidence = _normalized_text(_fact_evidence_text(layout_fact_evidence))
+    evidence = _normalized_text(
+        _locked_layout_evidence_text(layout_fact_evidence)
+    )
     if not evidence:
         return "article_layout:missing_fact_evidence"
     body = _normalized_text(f"{master_title}\n{master_markdown}")
@@ -1321,7 +1369,7 @@ def generate_draft(
                         dedupe_key=dedupe_key,
                         source_url=source_url,
                         require_rich_layout=True,
-                        layout_fact_evidence=(bundle, factual_payload),
+                        layout_fact_evidence=bundle,
                     )
                     # Inject style warnings into editorial_profile so the review
                     # desk can display them without blocking the article.
