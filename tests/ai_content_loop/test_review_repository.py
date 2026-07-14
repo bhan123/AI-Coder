@@ -12,6 +12,7 @@ from ai_content_loop.review.repository import (
     ArticleNotFound,
     ArticleRepository,
     InvalidArticle,
+    _atomic_json_write,
 )
 from ai_content_loop.visuals.pipeline import insert_body_asset_marker
 
@@ -555,6 +556,44 @@ def test_web_edition_invalidates_after_visual_edit(repository):
         operation="visual_edit",
     )
 
+    assert repository.list_articles(status="needs_human_review")[0][
+        "article_id"
+    ] == article_id
+    with pytest.raises(ArticleNotFound):
+        repository.web_edition_path(article_id)
+
+
+def test_failed_article_write_revokes_old_web_edition_before_final_write(
+    repository,
+    monkeypatch,
+):
+    article_id = repository.list_articles()[0]["article_id"]
+    repository.store.set_review_status(DEDUPE_KEY, "approved")
+    repository.export_web_edition(article_id)
+    loaded = repository.load_article(article_id)
+    replacement = dict(loaded["payload"])
+    replacement["master_title"] = "不会落盘的标题"
+    original_write = _atomic_json_write
+
+    def fail_final_write(path, value):
+        if path == repository.final_dir / "repo.json":
+            raise OSError("simulated final write failure")
+        original_write(path, value)
+
+    monkeypatch.setattr(
+        "ai_content_loop.review.repository._atomic_json_write",
+        fail_final_write,
+    )
+
+    with pytest.raises(OSError, match="simulated final write failure"):
+        repository.save_article(
+            article_id,
+            replacement,
+            loaded["version"],
+            operation="edit",
+        )
+
+    assert repository.load_article(article_id)["version"] == loaded["version"]
     assert repository.list_articles(status="needs_human_review")[0][
         "article_id"
     ] == article_id
