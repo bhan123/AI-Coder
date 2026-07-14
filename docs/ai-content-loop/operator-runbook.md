@@ -56,7 +56,9 @@ dedupe_key,platform,metric_date,views,likes,collects,comments,shares,follows,not
 ## Metrics import
 
 ```bash
-python -m ai_content_loop.cli --config /opt/ai-content-loop/config.toml import-metrics /opt/ai-content-loop/metrics.csv
+/opt/ai-content-loop/venv/bin/python -m ai_content_loop.cli \
+  --config /opt/ai-content-loop/config.toml \
+  import-metrics /opt/ai-content-loop/metrics.csv
 ```
 
 ## Generation failures
@@ -70,7 +72,7 @@ the queue row to `needs_generation`, and rerun:
 
 ```bash
 cd /opt/ai-content-loop/repo
-python3 -m ai_content_loop.cli \
+/opt/ai-content-loop/venv/bin/python -m ai_content_loop.cli \
   --config /opt/ai-content-loop/config.toml \
   generate-drafts
 ```

@@ -1,0 +1,4 @@
+Flask>=3.1,<4
+gunicorn>=23,<24
+markdown-it-py>=3,<4
+Pillow>=12,<13
