@@ -5,9 +5,12 @@ const state = {
   version: null,
   platform: "wechat",
   dirty: false,
+  articleStatus: "untracked",
   previewRequest: 0,
+  richPreviewRequest: 0,
   visualCopyIndex: 0,
   visualRequestActive: false,
+  webEditionRequestActive: false,
 };
 
 const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
@@ -33,6 +36,16 @@ const bodyPlaceholder = document.querySelector("#body-placeholder");
 const visualTemplate = document.querySelector("#visual-template");
 const nextCopyButton = document.querySelector("#next-copy-button");
 const renderVisualsButton = document.querySelector("#render-visuals-button");
+const richPreviewButton = document.querySelector("#rich-preview-button");
+const richPreviewPane = document.querySelector("#rich-preview-pane");
+const richArticlePreview = document.querySelector("#rich-article-preview");
+const richPreviewCloseButton = document.querySelector(
+  "#rich-preview-close-button",
+);
+const exportWebEditionButton = document.querySelector(
+  "#export-web-edition-button",
+);
+const webEditionLinks = document.querySelector("#web-edition-links");
 
 const statusLabels = {
   needs_human_review: "待审核",
@@ -135,6 +148,25 @@ function renderWarnings(items) {
   });
   warnings.append(strong, document.createTextNode(labels.join("、")));
   warnings.hidden = false;
+}
+
+function clearWebEditionLinks() {
+  webEditionLinks.replaceChildren();
+  webEditionLinks.hidden = true;
+}
+
+function updateWebEditionControls() {
+  exportWebEditionButton.disabled = (
+    !state.articleId
+    || state.articleStatus !== "approved"
+    || state.dirty
+    || state.webEditionRequestActive
+  );
+}
+
+function setArticleStatus(status) {
+  state.articleStatus = status;
+  updateWebEditionControls();
 }
 
 function formatArticleDate(article) {
@@ -254,6 +286,12 @@ async function openArticle(articleId) {
     state.version = value.version;
     state.platform = "wechat";
     state.dirty = false;
+    const article = state.articles.find(
+      (item) => item.article_id === articleId,
+    );
+    setArticleStatus(article?.status || "untracked");
+    clearWebEditionLinks();
+    richPreviewPane.hidden = true;
     titleInput.value = state.payload.master_title;
     columnInput.value = state.payload.column;
     emptyState.hidden = true;
@@ -301,6 +339,8 @@ async function saveArticle() {
     state.payload = value.payload;
     state.version = value.version;
     state.dirty = false;
+    setArticleStatus("needs_human_review");
+    clearWebEditionLinks();
     renderWarnings(value.warnings);
     renderVisuals();
     notify("修改已保存，并创建了历史版本。");
@@ -333,6 +373,10 @@ async function setStatus(status) {
       ? "文章已标记为通过。"
       : "文章已标记为退回。";
     notify(message);
+    setArticleStatus(status);
+    if (status !== "approved") {
+      clearWebEditionLinks();
+    }
     await loadArticles(statusFilter.value);
   } catch (error) {
     notify(error.message, "error");
@@ -367,6 +411,8 @@ async function rerenderVisuals({copyIndex = state.visualCopyIndex} = {}) {
     state.version = value.version;
     state.visualCopyIndex = copyIndex;
     state.dirty = false;
+    setArticleStatus("needs_human_review");
+    clearWebEditionLinks();
     renderWarnings(value.warnings);
     renderVisuals();
     schedulePreview();
@@ -434,6 +480,8 @@ async function restoreHistory(historyId) {
     state.payload = value.payload;
     state.version = value.version;
     state.dirty = false;
+    setArticleStatus("needs_human_review");
+    clearWebEditionLinks();
     titleInput.value = state.payload.master_title;
     columnInput.value = state.payload.column;
     markdownEditor.value = bodyFor(state.platform);
@@ -454,6 +502,90 @@ function showMobilePane(pane) {
   showPreviewButton.classList.toggle("selected", !editorSelected);
 }
 
+async function showRichPreview() {
+  if (!state.articleId) return;
+  const articleId = state.articleId;
+  const requestId = ++state.richPreviewRequest;
+  richPreviewButton.disabled = true;
+  richPreviewPane.hidden = false;
+  richArticlePreview.textContent = "正在生成富阅读预览…";
+  try {
+    const value = await api("/api/rich-preview", {
+      method: "POST",
+      body: JSON.stringify({article_id: articleId}),
+    });
+    if (requestId !== state.richPreviewRequest || articleId !== state.articleId) {
+      return;
+    }
+    richArticlePreview.innerHTML = value.html;
+  } catch (error) {
+    if (requestId === state.richPreviewRequest) {
+      richArticlePreview.textContent = "富阅读预览暂时无法生成。";
+      notify(error.message, "error");
+    }
+  } finally {
+    if (requestId === state.richPreviewRequest) {
+      richPreviewButton.disabled = false;
+    }
+  }
+}
+
+function closeRichPreview() {
+  richPreviewPane.hidden = true;
+  showMobilePane("preview");
+}
+
+function webEditionUrl(value, key, articleId) {
+  if (typeof value[key] !== "string") {
+    throw new Error("导出响应缺少网页地址。");
+  }
+  const url = new URL(value[key], window.location.origin);
+  const expectedPath = `/api/articles/${encodeURIComponent(articleId)}/web-edition`;
+  if (url.origin !== window.location.origin || url.pathname !== expectedPath) {
+    throw new Error("导出响应包含不受信任的网页地址。");
+  }
+  return url.href;
+}
+
+function renderWebEditionLinks(value, articleId) {
+  const view = document.createElement("a");
+  view.href = webEditionUrl(value, "view_url", articleId);
+  view.target = "_blank";
+  view.rel = "noopener";
+  view.textContent = "查看网页";
+
+  const download = document.createElement("a");
+  download.href = webEditionUrl(value, "download_url", articleId);
+  download.textContent = "下载 HTML";
+
+  webEditionLinks.replaceChildren(view, download);
+  webEditionLinks.hidden = false;
+}
+
+async function exportWebEdition() {
+  if (!state.articleId || state.articleStatus !== "approved" || state.dirty) {
+    notify("文章通过审核后才可导出网页。", "error");
+    return;
+  }
+  const articleId = state.articleId;
+  state.webEditionRequestActive = true;
+  updateWebEditionControls();
+  try {
+    const value = await api(
+      `/api/articles/${encodeURIComponent(articleId)}/web-edition`,
+      {method: "POST", body: JSON.stringify({})},
+    );
+    if (articleId !== state.articleId) return;
+    renderWebEditionLinks(value, articleId);
+    notify("网页文章已导出。");
+  } catch (error) {
+    notify(error.message, "error");
+  } finally {
+    state.webEditionRequestActive = false;
+    updateWebEditionControls();
+  }
+}
+
 for (const button of document.querySelectorAll("[data-platform]")) {
   button.addEventListener(
     "click",
@@ -465,6 +597,9 @@ for (const input of [titleInput, columnInput, markdownEditor]) {
   input.addEventListener("input", () => {
     readEditorIntoPayload();
     state.dirty = true;
+    clearWebEditionLinks();
+    updateWebEditionControls();
+    richPreviewPane.hidden = true;
     if (input === markdownEditor) {
       schedulePreview();
     }
@@ -479,6 +614,9 @@ document.querySelector("#copy-button").addEventListener(
   "click",
   copyCurrentBody,
 );
+richPreviewButton.addEventListener("click", showRichPreview);
+richPreviewCloseButton.addEventListener("click", closeRichPreview);
+exportWebEditionButton.addEventListener("click", exportWebEdition);
 document.querySelector("#approve-button").addEventListener(
   "click",
   () => setStatus("approved"),

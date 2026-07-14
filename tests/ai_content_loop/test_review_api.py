@@ -530,3 +530,34 @@ def test_review_ui_labels_non_blocking_editorial_warnings():
 
     assert 'below_target_length: "未达到平台建议篇幅"' in script
     assert 'editorial_placeholder: "正文包含编辑占位文字"' in script
+
+
+def test_review_page_exposes_safe_rich_preview_and_approved_export_controls(
+    review_app,
+):
+    client = review_app.test_client()
+    login(client)
+    html = client.get("/").get_data(as_text=True)
+    script = (
+        Path(__file__).parents[2]
+        / "ai_content_loop"
+        / "review"
+        / "static"
+        / "review.js"
+    ).read_text(encoding="utf-8")
+
+    for element_id in (
+        "rich-preview-button",
+        "rich-preview-pane",
+        "rich-article-preview",
+        "rich-preview-close-button",
+        "export-web-edition-button",
+        "web-edition-links",
+    ):
+        assert f'id="{element_id}"' in html
+
+    assert 'api("/api/rich-preview"' in script
+    assert "/web-edition" in script
+    assert "updateWebEditionControls" in script
+    assert "clearWebEditionLinks" in script
+    assert "richArticlePreview.innerHTML = value.html" in script

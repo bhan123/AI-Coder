@@ -159,6 +159,27 @@
           </section>
         </div>
 
+        <section
+          id="rich-preview-pane"
+          class="rich-preview-pane"
+          aria-label="富阅读预览"
+          hidden
+        >
+          <div class="pane-title rich-preview-heading">
+            <span>富阅读预览</span>
+            <button
+              id="rich-preview-close-button"
+              class="quiet"
+              type="button"
+            >关闭并返回发布排版预览</button>
+          </div>
+          <article
+            id="rich-article-preview"
+            class="article-preview rich-article-preview"
+            aria-live="polite"
+          ></article>
+        </section>
+
         <footer class="actionbar">
           <div>
             <button
@@ -171,6 +192,18 @@
               class="quiet"
               type="button"
             >复制正文</button>
+            <button
+              id="rich-preview-button"
+              class="quiet"
+              type="button"
+            >富阅读预览</button>
+            <button
+              id="export-web-edition-button"
+              class="quiet"
+              type="button"
+              disabled
+            >导出网页</button>
+            <span id="web-edition-links" class="web-edition-links" hidden></span>
           </div>
           <div>
             <button

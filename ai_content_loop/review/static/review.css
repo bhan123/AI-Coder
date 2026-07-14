@@ -284,6 +284,42 @@ select:focus {
   overflow-wrap: anywhere;
 }
 
+.rich-preview-pane {
+  display: grid;
+  grid-template-rows: 40px minmax(260px, 1fr);
+  min-height: 420px;
+  border-top: 1px solid var(--border);
+  background: #f7f8fa;
+}
+
+.rich-preview-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.rich-article-preview {
+  min-height: 0;
+  background: var(--surface);
+}
+
+.web-edition-links {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.web-edition-links a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.web-edition-links a:hover {
+  text-decoration: underline;
+}
+
 .actionbar {
   display: flex;
   justify-content: space-between;
@@ -539,7 +575,8 @@ dialog header,
   }
 
   .editor-pane,
-  .preview-pane {
+  .preview-pane,
+  .rich-preview-pane {
     height: 100%;
   }
 
