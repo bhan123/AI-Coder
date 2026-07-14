@@ -6,7 +6,7 @@ Each newly generated article receives one persisted visual theme and one persist
 
 ## Decisions
 
-- Theme pool: `press`, `vignelli`.
+- Theme pool: `press`, `tufte`, `magazine`, `vignelli`.
 - Structure pool: `briefing`, `explainer`, `essay`.
 - Selection happens once before editorial generation using a cryptographically strong random source and is passed to Hermes as an explicit requested layout.
 - The chosen `theme` and `structure` are stored in `article_layout` and remain stable through review edits, preview refreshes, exports, and service restarts.
@@ -39,7 +39,7 @@ locked facts + selected layout
 - `explainer`: mechanism, evidence, consequence; explanatory section order.
 - `essay`: tension, evidence, judgment, limitation; more narrative pacing.
 
-The prompt receives the selected values and must return that exact pair. Validation rejects a mismatch, unknown value, unsafe text, or a layout that is not grounded in the final article.
+The prompt receives the selected values and must return that exact pair. Validation rejects a mismatch, unknown value, unsafe text, or a layout that is not grounded in the final article. The four theme profiles are deliberately distinct: `press` is restrained editorial, `tufte` is evidence-first with marginalia, `magazine` is bold and visual, and `vignelli` is grid-led and typographic.
 
 ### WeChat adapter
 
@@ -82,4 +82,3 @@ The UI shows `未同步`, `同步中`, `已同步草稿`, or `同步失败` and 
 2. Deploy review service with empty WeChat credentials; the new action remains disabled with a clear configuration message.
 3. Add credentials on the server through a mode-600 environment file, restart the review service, and run a controlled draft sync on one approved article.
 4. Verify the article and images in the WeChat draft box, then enable the workflow for routine use.
-
