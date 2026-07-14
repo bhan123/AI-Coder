@@ -2,6 +2,7 @@ import pytest
 
 from ai_content_loop.editorial.schema import (
     FinalSchemaError,
+    coerce_reviewable_final_payload,
     empty_article_layout,
     empty_visual_assets,
     legacy_editorial_profile,
@@ -143,6 +144,20 @@ def test_accepts_complete_press_article_layout():
     assert normalized["article_layout"] == press_layout()
 
 
+def test_accepts_http_arxiv_source_note_url():
+    payload = enriched_payload()
+    payload["article_layout"] = press_layout()
+    payload["article_layout"]["blocks"][7]["url"] = (
+        "http://arxiv.org/abs/2607.10918"
+    )
+
+    normalized = normalize_final_payload(payload)
+
+    assert normalized["article_layout"]["blocks"][7]["url"].startswith(
+        "http://arxiv.org/"
+    )
+
+
 @pytest.mark.parametrize(
     ("mutation", "message"),
     [
@@ -202,6 +217,18 @@ def test_accepts_explicit_null_visual_brief_in_enriched_payload():
 
     assert normalized["visual_brief"] is None
     assert normalized["visual_assets"] == empty_visual_assets()
+
+
+def test_coerce_repairs_invalid_visual_brief_in_pre_layout_enriched_payload():
+    payload = enriched_payload()
+    payload["visual_brief"]["body_panels"].append(
+        {"label": "模型多写一格", "reaction": "尴尬"}
+    )
+
+    normalized = coerce_reviewable_final_payload(payload)
+
+    assert normalized["article_layout"] == empty_article_layout()
+    assert len(normalized["visual_brief"]["body_panels"]) == 2
 
 
 def expanded_legacy_payload():

@@ -324,9 +324,9 @@ def _validate_article_layout_block(value: object, index: int) -> None:
     elif block_type == "source_note":
         url = _validate_text(value.get("url"), f"{prefix}.url")
         parsed = urlparse(url)
-        if parsed.scheme != "https" or not parsed.netloc:
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             raise FinalSchemaError(
-                f"{prefix}.url must be an absolute HTTPS URL"
+                f"{prefix}.url must be an absolute HTTP(S) URL"
             )
         _validate_text(value.get("attribution"), f"{prefix}.attribution")
 
@@ -423,16 +423,24 @@ def coerce_reviewable_final_payload(
     brief and empty assets.
     """
 
+    candidate = value
+    if (
+        isinstance(value, dict)
+        and set(value) == FINAL_FIELDS - {"article_layout"}
+    ):
+        candidate = deepcopy(value)
+        candidate["article_layout"] = empty_article_layout()
+
     try:
         return normalize_final_payload(
-            value,
+            candidate,
             allow_legacy_expanded=allow_legacy_expanded,
         )
     except FinalSchemaError as error:
         if (
-            not isinstance(value, dict)
-            or set(value) != FINAL_FIELDS
-            or value.get("visual_assets") != empty_visual_assets()
+            not isinstance(candidate, dict)
+            or set(candidate) != FINAL_FIELDS
+            or candidate.get("visual_assets") != empty_visual_assets()
             or not (
                 error.failure_code
                 and error.failure_code.startswith("visual_brief:")
@@ -440,7 +448,7 @@ def coerce_reviewable_final_payload(
         ):
             raise
 
-    repaired = deepcopy(value)
+    repaired = deepcopy(candidate)
     repaired["visual_brief"] = coerce_visual_brief(
         repaired.get("visual_brief")
     )
