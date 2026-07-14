@@ -13,6 +13,7 @@ from ai_content_loop.review.repository import (
     ArticleRepository,
     InvalidArticle,
 )
+from ai_content_loop.visuals.pipeline import insert_body_asset_marker
 
 
 DEDUPE_KEY = "github:owner/repo"
@@ -459,3 +460,76 @@ def test_history_identifier_cannot_escape_history_directory(repository):
             history_id="../../repo.json",
             expected_version=loaded["version"],
         )
+
+
+def test_export_web_edition_requires_an_approved_article(repository):
+    article_id = repository.list_articles()[0]["article_id"]
+
+    with pytest.raises(InvalidArticle, match="not approved"):
+        repository.export_web_edition(article_id)
+
+
+def test_export_web_edition_writes_a_standalone_document_in_output_web(
+    repository,
+):
+    article_id = repository.list_articles()[0]["article_id"]
+    repository.store.set_review_status(DEDUPE_KEY, "approved")
+
+    exported = repository.export_web_edition(article_id)
+
+    assert exported == repository.output_dir / "web" / f"{article_id}.html"
+    assert exported.is_file()
+    html = exported.read_text(encoding="utf-8")
+    assert html.startswith("<!doctype html>")
+    assert "<style>" in html
+    assert "<script" not in html.lower()
+    assert list(exported.parent.glob(f".{article_id}.html.*.tmp")) == []
+
+
+def test_export_web_edition_embeds_only_safe_repository_assets(repository):
+    article_id = repository.list_articles()[0]["article_id"]
+    revision = "a" * 64
+    asset_dir = repository.assets_dir / article_id / revision
+    asset_dir.mkdir(parents=True)
+    (asset_dir / "cover.jpg").write_bytes(b"cover")
+    (asset_dir / "body.png").write_bytes(b"body")
+    payload = article_payload()
+    payload["visual_assets"] = {
+        "cover": {
+            "asset_id": "cover",
+            "revision": revision,
+            "path": f"assets/{article_id}/{revision}/cover.jpg",
+            "template": "ai_done_vs_tests",
+            "copy_index": 0,
+            "ai_generated": False,
+        },
+        "body": [
+            {
+                "asset_id": "body-01",
+                "revision": revision,
+                "path": f"assets/{article_id}/{revision}/body.png",
+                "template": "ai_done_vs_tests",
+                "copy_index": 0,
+                "ai_generated": False,
+            }
+        ],
+    }
+    (repository.final_dir / "repo.json").write_text(
+        json.dumps(insert_body_asset_marker(payload), ensure_ascii=False),
+        encoding="utf-8",
+    )
+    repository.store.set_review_status(DEDUPE_KEY, "approved")
+
+    html = repository.export_web_edition(article_id).read_text(encoding="utf-8")
+
+    assert "data:image/jpeg;base64,Y292ZXI=" in html
+    assert "data:image/png;base64,Ym9keQ==" in html
+    assert str(asset_dir) not in html
+    (asset_dir / "cover.jpg").unlink()
+
+    without_missing_asset = repository.export_web_edition(article_id).read_text(
+        encoding="utf-8"
+    )
+
+    assert "data:image/jpeg;base64,Y292ZXI=" not in without_missing_asset
+    assert "data:image/png;base64,Ym9keQ==" in without_missing_asset

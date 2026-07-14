@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from datetime import UTC, datetime
 import hmac
 import json
@@ -26,6 +27,10 @@ from ai_content_loop.editorial.schema import (
 from ai_content_loop.generation import validate_generation_payload
 from ai_content_loop.visuals.pipeline import (
     has_canonical_body_asset_marker,
+)
+from ai_content_loop.review.web_edition import (
+    atomic_write_web_edition,
+    render_web_edition,
 )
 
 
@@ -441,6 +446,88 @@ class ArticleRepository:
                             "article has unresolved editorial or visual warnings"
                         )
                 self.store.set_review_status(payload["dedupe_key"], status)
+
+    def export_web_edition(self, article_id: str) -> Path:
+        """Export only the currently approved, server-owned article."""
+
+        with self._write_lock:
+            with article_lock(
+                output_dir=self.output_dir,
+                article_id=article_id,
+            ):
+                _, payload = self._find(article_id)
+                queue_rows = {
+                    str(row["dedupe_key"]): row
+                    for row in self.store.list_publish_queue()
+                }
+                queue_row = queue_rows.get(payload["dedupe_key"])
+                if queue_row is None or queue_row["status"] != "approved":
+                    raise InvalidArticle("article is not approved for export")
+                destination = self.output_dir / "web" / f"{article_id}.html"
+                atomic_write_web_edition(
+                    destination,
+                    render_web_edition(
+                        payload.get("article_layout"),
+                        title=payload.get("master_title"),
+                        fallback_markdown=payload.get("master_markdown"),
+                        embedded_images=self._web_edition_images(article_id),
+                    ),
+                )
+                return destination
+
+    def _web_edition_images(
+        self,
+        article_id: str,
+    ) -> list[tuple[str, str]]:
+        """Encode only current, repository-confined visual assets."""
+
+        media_types = {
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".png": "image/png",
+            ".webp": "image/webp",
+        }
+        images: list[tuple[str, str]] = []
+        for reference in self._asset_references(article_id):
+            try:
+                path = self.asset_path(
+                    article_id,
+                    str(reference["asset_id"]),
+                    str(reference["revision"]),
+                )
+                media_type = media_types.get(path.suffix.lower())
+                if media_type is None or path.stat().st_size > 8_000_000:
+                    continue
+                content = path.read_bytes()
+            except (ArticleNotFound, OSError, KeyError):
+                continue
+            encoded = base64.b64encode(content).decode("ascii")
+            images.append(
+                (
+                    f"data:{media_type};base64,{encoded}",
+                    "文章封面" if reference["asset_id"] == "cover" else "正文配图",
+                )
+            )
+        return images
+
+    def web_edition_path(self, article_id: str) -> Path:
+        """Return a previously exported edition only while approval is current."""
+
+        _, payload = self._find(article_id)
+        queue_rows = {
+            str(row["dedupe_key"]): row
+            for row in self.store.list_publish_queue()
+        }
+        queue_row = queue_rows.get(payload["dedupe_key"])
+        destination = self.output_dir / "web" / f"{article_id}.html"
+        if (
+            queue_row is None
+            or queue_row["status"] != "approved"
+            or not destination.is_file()
+            or destination.is_symlink()
+        ):
+            raise ArticleNotFound(article_id)
+        return destination
 
     def _approval_failures(
         self,

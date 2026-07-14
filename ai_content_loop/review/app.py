@@ -302,6 +302,35 @@ def create_app(test_config: dict | None = None) -> Flask:
         repository.set_status(article_id, status)
         return jsonify(status=status)
 
+    @app.post("/api/articles/<article_id>/web-edition")
+    @login_required
+    def export_web_edition(article_id: str):
+        require_csrf()
+        value = request.get_json(silent=True)
+        if value not in (None, {}):
+            return jsonify(error="invalid_request"), 400
+        repository.export_web_edition(article_id)
+        return jsonify(
+            view_url=url_for("web_edition", article_id=article_id),
+            download_url=url_for(
+                "web_edition",
+                article_id=article_id,
+                download="1",
+            ),
+        )
+
+    @app.get("/api/articles/<article_id>/web-edition")
+    @login_required
+    def web_edition(article_id: str):
+        path = repository.web_edition_path(article_id)
+        return send_file(
+            path,
+            as_attachment=request.args.get("download") == "1",
+            download_name=f"{article_id}.html",
+            mimetype="text/html",
+            conditional=True,
+        )
+
     @app.after_request
     def security_headers(response):
         response.headers["Content-Security-Policy"] = (

@@ -370,6 +370,58 @@ def test_review_sidebar_renders_generated_date():
     assert "article-date" in script
 
 
+def test_web_edition_api_exports_only_approved_server_owned_article(
+    review_app,
+):
+    client = review_app.test_client()
+    assert client.post("/api/articles/nope/web-edition").status_code == 401
+    csrf = login(client)
+    article_id = client.get("/api/articles").get_json()["articles"][0][
+        "article_id"
+    ]
+
+    rejected = client.post(
+        f"/api/articles/{article_id}/web-edition",
+        json={},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert rejected.status_code == 400
+
+    repository = review_app.extensions["article_repository"]
+    repository.store.set_review_status(DEDUPE_KEY, "approved")
+    response = client.post(
+        f"/api/articles/{article_id}/web-edition",
+        json={},
+        headers={"X-CSRF-Token": csrf},
+    )
+
+    assert response.status_code == 200
+    value = response.get_json()
+    assert value["view_url"] == f"/api/articles/{article_id}/web-edition"
+    assert value["download_url"] == (
+        f"/api/articles/{article_id}/web-edition?download=1"
+    )
+    assert client.get(value["view_url"]).get_data(as_text=True).startswith(
+        "<!doctype html>"
+    )
+
+
+def test_web_edition_api_rejects_request_body_injection(review_app):
+    client = review_app.test_client()
+    csrf = login(client)
+    article_id = client.get("/api/articles").get_json()["articles"][0][
+        "article_id"
+    ]
+
+    response = client.post(
+        f"/api/articles/{article_id}/web-edition",
+        json={"html": "<script>alert(1)</script>", "path": "../../x"},
+        headers={"X-CSRF-Token": csrf},
+    )
+
+    assert response.status_code == 400
+
+
 def test_review_ui_labels_non_blocking_editorial_warnings():
     script = (
         Path(__file__).parents[2]
