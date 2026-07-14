@@ -17,9 +17,6 @@ from ai_content_loop.generation import (
     parse_generation_output,
     validate_generation_payload,
 )
-from ai_content_loop.editorial.schema import empty_article_layout
-
-
 SOURCE_URL = "https://github.com/owner/repo"
 DEDUPE_KEY = "github:owner/repo"
 PROMPTS_DIR = Path(__file__).parents[2] / "ai_content_loop" / "prompts"
@@ -122,6 +119,44 @@ def valid_core_payload() -> dict:
     }
 
 
+def press_layout() -> dict:
+    return {
+        "theme": "press",
+        "blocks": [
+            {
+                "type": "hero",
+                "title": "这个开源项目值得认真看看",
+                "deck": "先把可验证的价值放在读者眼前。",
+            },
+            {
+                "type": "lead",
+                "text": "先说结论：它把需要反复核验的流程变得更清楚。",
+            },
+            {
+                "type": "key_judgment",
+                "text": "真正的价值不在替人下结论，而在缩短验证路径。",
+            },
+            {
+                "type": "section",
+                "heading": "它解决了什么问题",
+                "paragraphs": [
+                    "项目背景和核心功能都需要回到原始资料核验。",
+                    "适用边界必须和收益判断一起交代清楚。",
+                ],
+            },
+            {
+                "type": "callout",
+                "text": "不要把模型输出当成来源，来源仍要能被读者追溯。",
+            },
+            {
+                "type": "source_note",
+                "url": SOURCE_URL,
+                "attribution": "项目原始页面",
+            },
+        ],
+    }
+
+
 def enriched_payload() -> dict:
     payload = valid_core_payload()
     payload.update(
@@ -162,7 +197,7 @@ def enriched_payload() -> dict:
                 ],
             },
             "visual_assets": {"cover": None, "body": []},
-            "article_layout": empty_article_layout(),
+            "article_layout": press_layout(),
         }
     )
     return payload
@@ -1783,6 +1818,39 @@ def test_generation_treats_quality_failures_as_review_warnings():
     assert "wechat:overpromise" in warnings
 
 
+def test_validator_rejects_unsafe_article_layout_without_echoing_model_text():
+    payload = enriched_payload()
+    payload["article_layout"]["blocks"][1]["text"] = (
+        "<script>steal-model-output</script>"
+    )
+
+    hard, warnings = validate_generation_payload(
+        payload,
+        dedupe_key=DEDUPE_KEY,
+        source_url=SOURCE_URL,
+    )
+
+    assert hard == ["article_layout:unsafe_markup"]
+    assert warnings == []
+    assert "steal-model-output" not in " ".join(hard)
+
+
+def test_validator_rejects_layout_source_url_not_present_in_locked_facts():
+    payload = enriched_payload()
+    payload["article_layout"]["blocks"][-1]["url"] = (
+        "https://unreviewed.example/asset.png"
+    )
+
+    hard, warnings = validate_generation_payload(
+        payload,
+        dedupe_key=DEDUPE_KEY,
+        source_url=SOURCE_URL,
+    )
+
+    assert hard == ["article_layout:source_url_mismatch"]
+    assert warnings == []
+
+
 def test_validator_reports_platform_target_lengths_as_review_warnings():
     payload = enriched_payload()
     short_body = (
@@ -1848,7 +1916,7 @@ def test_active_prompts_state_two_pass_contracts():
     assert "读者回报" in scoring_prompt
     assert "没有公开 Demo、可用入口或强情绪价值" in scoring_prompt
     assert "# 懂技术的损友编辑" in editorial_prompt
-    assert "Prompt version: editorial-v12" in editorial_prompt
+    assert "Prompt version: editorial-v13" in editorial_prompt
     assert "输入包含锁定事实、事实稿和来源。只改变表达，不新增或修改事实。" in editorial_prompt
     assert "## 人格" in editorial_prompt
     assert "懂技术的朋友 45%，产品经理 + 数据工程师 35%" in editorial_prompt
@@ -1886,6 +1954,10 @@ def test_active_prompts_state_two_pass_contracts():
     ) in editorial_prompt
     assert 'visual_assets 必须严格返回 {"cover": null, "body": []}。' in editorial_prompt
     assert "返回一个八字段 JSON 对象，不要解释，不要 Markdown 围栏。" in editorial_prompt
+    assert "## Rich article layout contract" in editorial_prompt
+    assert "article_layout.theme must be press" in editorial_prompt
+    assert "Never emit HTML, CSS, JavaScript, JSX, Markdown links" in editorial_prompt
+    assert "source_note.url must exactly equal locked_facts.source_url" in editorial_prompt
     assert '"humor_level": "balanced"' in editorial_prompt
     assert '"humor_level": "spicy"' not in editorial_prompt
     assert "[来源1]" not in combined_prompts

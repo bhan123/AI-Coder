@@ -4,6 +4,7 @@ import hashlib
 import json
 import locale
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -72,6 +73,10 @@ _PLATFORM_MIN_CHARS = {
 _EDITORIAL_PLACEHOLDERS = ("正文配图", "封面配图", "图片占位")
 
 _NEUTRAL_TITLE = "内容质量检查使用的中性标题"
+_ARTICLE_LAYOUT_MARKUP = re.compile(r"<\s*/?\s*[A-Za-z][^>]*>")
+_ARTICLE_LAYOUT_MARKDOWN_LINK = re.compile(r"!?\[[^\]]*\]\([^)]*\)")
+_ARTICLE_LAYOUT_URL = re.compile(r"(?i)\b(?:https?|javascript|data):")
+
 _NEUTRAL_SOURCE_URL = "https://example.invalid/source"
 _NEUTRAL_BODY = (
     f"这是仅用于验证共享标题且长度足够的中性正文内容。来源：{_NEUTRAL_SOURCE_URL}"
@@ -200,6 +205,47 @@ def _evaluate_body(markdown: str, source_url: str) -> list[str]:
 
 def _contains_editorial_placeholder(markdown: str) -> bool:
     return any(placeholder in markdown for placeholder in _EDITORIAL_PLACEHOLDERS)
+
+
+def _article_layout_safety_failure(
+    layout: object,
+    *,
+    source_url: str,
+) -> str | None:
+    """Return a bounded, machine-readable failure for unsafe layout data.
+
+    Schema validation runs before this helper. The extra checks make the
+    renderer's data boundary explicit: semantic block text cannot smuggle in
+    presentation code or an unreviewed URL, and a source note can only refer
+    to the locked source URL supplied for this draft.
+    """
+    if not isinstance(layout, dict):
+        return None
+    blocks = layout.get("blocks")
+    if not isinstance(blocks, list):
+        return None
+
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        for field, value in block.items():
+            if field == "url":
+                if value != source_url:
+                    return "article_layout:source_url_mismatch"
+                continue
+            values = value if isinstance(value, list) else [value]
+            for text in values:
+                if not isinstance(text, str):
+                    continue
+                if _ARTICLE_LAYOUT_MARKUP.search(text):
+                    return "article_layout:unsafe_markup"
+                if _ARTICLE_LAYOUT_MARKDOWN_LINK.search(text):
+                    return "article_layout:unsafe_markdown"
+                if _ARTICLE_LAYOUT_URL.search(text):
+                    return "article_layout:unapproved_url"
+                if "{{" in text or "}}" in text or "```" in text:
+                    return "article_layout:unsafe_render_instruction"
+    return None
 
 
 def _code_base(failure: str) -> str:
@@ -338,11 +384,23 @@ def validate_generation_payload(
         and not before_schema_hard
     ):
         try:
-            normalize_final_payload(fields)
+            normalized = normalize_final_payload(fields)
         except FinalSchemaError as exc:
-            add_failure(exc.failure_code or "invalid_final_schema")
+            if exc.failure_code is not None:
+                add_failure(exc.failure_code)
+            elif str(exc).startswith("article_layout"):
+                add_failure("article_layout:invalid_schema")
+            else:
+                add_failure("invalid_final_schema")
             if exc.failure_code is None:
                 add_visual_brief_failure()
+        else:
+            layout_failure = _article_layout_safety_failure(
+                normalized["article_layout"],
+                source_url=source_url,
+            )
+            if layout_failure is not None:
+                add_failure(layout_failure)
 
     editorial_profile = fields.get("editorial_profile")
     if not isinstance(editorial_profile, dict):
