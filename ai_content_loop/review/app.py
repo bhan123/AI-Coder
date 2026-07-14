@@ -8,6 +8,7 @@ from pathlib import Path
 from flask import (
     Flask,
     current_app,
+    g,
     jsonify,
     render_template,
     request,
@@ -43,6 +44,16 @@ REVIEW_STATUSES = {
     "approved",
     "revision_requested",
 }
+REVIEW_CSP = (
+    "default-src 'self'; img-src 'self' data:; style-src 'self'; "
+    "script-src 'self'; base-uri 'none'; frame-ancestors 'none'; "
+    "form-action 'self'"
+)
+WEB_EDITION_CSP = (
+    "default-src 'none'; img-src data:; style-src 'unsafe-inline'; "
+    "script-src 'none'; connect-src 'none'; base-uri 'none'; "
+    "frame-ancestors 'none'; form-action 'none'"
+)
 
 
 def create_app(test_config: dict | None = None) -> Flask:
@@ -323,6 +334,7 @@ def create_app(test_config: dict | None = None) -> Flask:
     @login_required
     def web_edition(article_id: str):
         path = repository.web_edition_path(article_id)
+        g.web_edition_response = True
         return send_file(
             path,
             as_attachment=request.args.get("download") == "1",
@@ -334,9 +346,9 @@ def create_app(test_config: dict | None = None) -> Flask:
     @app.after_request
     def security_headers(response):
         response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; img-src 'self' data:; style-src 'self'; "
-            "script-src 'self'; base-uri 'none'; frame-ancestors 'none'; "
-            "form-action 'self'"
+            WEB_EDITION_CSP
+            if getattr(g, "web_edition_response", False)
+            else REVIEW_CSP
         )
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["X-Content-Type-Options"] = "nosniff"

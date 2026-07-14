@@ -460,9 +460,24 @@ def test_web_edition_api_exports_only_approved_server_owned_article(
     assert value["download_url"] == (
         f"/api/articles/{article_id}/web-edition?download=1"
     )
-    assert client.get(value["view_url"]).get_data(as_text=True).startswith(
-        "<!doctype html>"
+    view = client.get(value["view_url"])
+    html = view.get_data(as_text=True)
+
+    assert html.startswith("<!doctype html>")
+    assert "<script" not in html.lower()
+    assert 'href="http' not in html
+    assert 'src="http' not in html
+    assert view.headers["Content-Security-Policy"] == (
+        "default-src 'none'; img-src data:; style-src 'unsafe-inline'; "
+        "script-src 'none'; connect-src 'none'; base-uri 'none'; "
+        "frame-ancestors 'none'; form-action 'none'"
     )
+    assert "style-src 'self'" in client.get("/login").headers[
+        "Content-Security-Policy"
+    ]
+    assert client.get(value["download_url"]).headers[
+        "Content-Security-Policy"
+    ] == view.headers["Content-Security-Policy"]
 
 
 def test_web_edition_api_rejects_request_body_injection(review_app):
