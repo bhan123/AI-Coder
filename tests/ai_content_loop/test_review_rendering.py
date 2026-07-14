@@ -91,7 +91,7 @@ def test_render_rich_article_renders_whitelisted_press_blocks_as_escaped_html():
         }
     )
 
-    assert "<style>" in html
+    assert "<style>" not in html
     assert 'class="rich-article__toc"' in html
     assert "<script>" not in html
     assert "&lt;script&gt;不能执行&lt;/script&gt;" in html
@@ -110,4 +110,4 @@ def test_render_rich_article_falls_back_for_an_empty_or_untrusted_layout():
 
     assert "旧文章标题" in html
     assert "正文内容" in html
-    assert "<style>" in html
+    assert "<style>" not in html

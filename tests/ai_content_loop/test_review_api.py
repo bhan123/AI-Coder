@@ -277,7 +277,7 @@ def test_rich_preview_requires_authenticated_csrf_protected_article_lookup(
     html = response.get_json()["html"]
     assert "一个值得关注的开源项目" in html
     assert "正文内容足够长。" in html
-    assert "<style>" in html
+    assert "<style>" not in html
 
 
 def test_review_page_contains_editor_shell(review_app):
@@ -295,6 +295,18 @@ def test_review_page_contains_editor_shell(review_app):
     assert 'data-platform="xiaohongshu"' in html
     assert 'data-platform="toutiao"' in html
     assert 'data-platform="zhihu"' in html
+    assert 'href="/static/rich_article.css"' in html
+
+
+def test_review_page_serves_rich_article_styles_from_own_static_origin(
+    review_app,
+):
+    css = review_app.test_client().get(
+        "/static/rich_article.css"
+    ).get_data(as_text=True)
+
+    assert ".rich-article__toc" in css
+    assert ".rich-article__hero" in css
 
 
 def test_create_app_loads_production_environment(monkeypatch, tmp_path):

@@ -6,23 +6,6 @@ from urllib.parse import urlparse
 from ai_content_loop.review.rendering import render_markdown
 
 
-_PRESS_CSS = """
-.rich-article { color: #1f2933; font-family: Georgia, "Times New Roman", serif; line-height: 1.75; max-width: 760px; margin: 0 auto; }
-.rich-article__hero { border-bottom: 3px solid #1f2933; margin-bottom: 1.5rem; padding-bottom: 1.25rem; }
-.rich-article__hero h1 { font-size: 2.35rem; letter-spacing: -0.03em; line-height: 1.2; margin: 0; }
-.rich-article__deck { color: #52606d; font-size: 1.15rem; margin: 0.8rem 0 0; }
-.rich-article__toc { border-left: 3px solid #d9e2ec; font-family: system-ui, sans-serif; margin: 1.5rem 0; padding-left: 1rem; }
-.rich-article__toc ol { margin: 0.5rem 0; padding-left: 1.25rem; }
-.rich-article__lead { font-size: 1.2rem; font-weight: 600; }
-.rich-article__judgment, .rich-article__callout { background: #f0f4f8; border-radius: 0.35rem; margin: 1.25rem 0; padding: 1rem 1.15rem; }
-.rich-article__comparison { display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin: 1.25rem 0; }
-.rich-article__comparison div { border-top: 2px solid #829ab1; padding-top: 0.45rem; }
-.rich-article__quote { border-left: 4px solid #334e68; margin: 1.5rem 0; padding-left: 1rem; }
-.rich-article__quote p { font-size: 1.1rem; margin-bottom: 0.35rem; }
-.rich-article__source { color: #52606d; font-family: system-ui, sans-serif; font-size: 0.9rem; }
-.rich-article__source a { color: #186faf; overflow-wrap: anywhere; }
-""".strip()
-
 _BLOCK_FIELDS = {
     "hero": {"type", "title", "deck"},
     "lead": {"type", "text"},
@@ -104,7 +87,6 @@ def _fallback_html(*, title: object, markdown: object) -> str:
     title_html = f"<h1>{escape(safe_title)}</h1>" if safe_title else ""
     body_html = render_markdown(safe_markdown) if safe_markdown else ""
     return (
-        f"<style>{_PRESS_CSS}</style>"
         '<article class="rich-article rich-article--fallback">'
         f'<header class="rich-article__hero">{title_html}</header>'
         f'<div class="rich-article__body">{body_html}</div>'
@@ -201,7 +183,6 @@ def render_rich_article(
             section_index += 1
         rendered.append(_render_block(block, section_index))
     return (
-        f"<style>{_PRESS_CSS}</style>"
         '<article class="rich-article">'
         f"{toc_html}{''.join(rendered)}"
         "</article>"
