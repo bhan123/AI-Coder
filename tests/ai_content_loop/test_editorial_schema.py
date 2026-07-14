@@ -2,6 +2,7 @@ import pytest
 
 from ai_content_loop.editorial.schema import (
     FinalSchemaError,
+    empty_article_layout,
     empty_visual_assets,
     legacy_editorial_profile,
     normalize_final_payload,
@@ -66,6 +67,43 @@ def enriched_payload():
     return value
 
 
+def press_layout():
+    return {
+        "theme": "press",
+        "blocks": [
+            {
+                "type": "hero",
+                "title": "一个值得关注的开源项目",
+                "deck": "把事实先放在读者眼前。",
+            },
+            {"type": "lead", "text": "先说结论：它值得试一次。"},
+            {"type": "key_judgment", "text": "真正的价值在于缩短验证路径。"},
+            {
+                "type": "section",
+                "heading": "它解决了什么问题",
+                "paragraphs": ["正文内容足够长。", "来源需要可追溯。"],
+            },
+            {
+                "type": "workflow_compare",
+                "before": "先手工整理上下文。",
+                "after": "现在可以更快得到候选结论。",
+                "remaining_friction": "仍需人工核验关键事实。",
+            },
+            {
+                "type": "quote",
+                "text": "测试比直觉更诚实。",
+                "attribution": "项目文档",
+            },
+            {"type": "callout", "text": "不要把模型输出当作来源。"},
+            {
+                "type": "source_note",
+                "url": "https://example.com/source",
+                "attribution": "原始项目页面",
+            },
+        ],
+    }
+
+
 def test_normalize_legacy_payload_adds_safe_defaults():
     value = normalize_final_payload(legacy_payload())
 
@@ -75,6 +113,85 @@ def test_normalize_legacy_payload_adds_safe_defaults():
     ]
     assert value["visual_brief"] is None
     assert value["visual_assets"] == {"cover": None, "body": []}
+
+
+def test_normalize_legacy_payload_adds_empty_press_article_layout():
+    value = normalize_final_payload(legacy_payload())
+
+    assert empty_article_layout() == {"theme": "press", "blocks": []}
+    assert value["article_layout"] == empty_article_layout()
+
+
+def test_rejects_article_layout_block_type_outside_supported_set():
+    payload = enriched_payload()
+    payload["article_layout"] = press_layout()
+    payload["article_layout"]["blocks"][0]["type"] = "image"
+
+    with pytest.raises(
+        FinalSchemaError,
+        match=r"article_layout.blocks\[0\].type",
+    ):
+        normalize_final_payload(payload)
+
+
+def test_accepts_complete_press_article_layout():
+    payload = enriched_payload()
+    payload["article_layout"] = press_layout()
+
+    normalized = normalize_final_payload(payload)
+
+    assert normalized["article_layout"] == press_layout()
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        (
+            lambda layout: layout.update({"theme": "neon"}),
+            "article_layout does not match",
+        ),
+        (
+            lambda layout: layout.update({"surprise": "model-controlled"}),
+            "article_layout does not match",
+        ),
+        (
+            lambda layout: layout.update({"blocks": "model-controlled"}),
+            "article_layout does not match",
+        ),
+        (
+            lambda layout: layout["blocks"][0].update(
+                {"surprise": "model-controlled"}
+            ),
+            r"article_layout.blocks\[0\] fields",
+        ),
+        (
+            lambda layout: layout["blocks"][0].update({"title": ""}),
+            r"article_layout.blocks\[0\].title",
+        ),
+        (
+            lambda layout: layout["blocks"][0].update({"title": False}),
+            r"article_layout.blocks\[0\].title",
+        ),
+        (
+            lambda layout: layout["blocks"][3].update({"paragraphs": []}),
+            r"article_layout.blocks\[3\].paragraphs",
+        ),
+        (
+            lambda layout: layout["blocks"][7].update({"url": "javascript:alert(1)"}),
+            r"article_layout.blocks\[7\].url",
+        ),
+    ],
+)
+def test_rejects_non_semantic_or_unknown_article_layout_values(
+    mutation,
+    message,
+):
+    payload = enriched_payload()
+    payload["article_layout"] = press_layout()
+    mutation(payload["article_layout"])
+
+    with pytest.raises(FinalSchemaError, match=message):
+        normalize_final_payload(payload)
 
 
 def test_accepts_explicit_null_visual_brief_in_enriched_payload():
@@ -106,10 +223,11 @@ def test_expanded_legacy_payload_requires_explicit_compatibility_mode():
         normalize_final_payload(payload)
 
     assert caught.value.failure_code == "visual_brief:root"
-    assert normalize_final_payload(
+    normalized = normalize_final_payload(
         payload,
         allow_legacy_expanded=True,
-    ) == payload
+    )
+    assert normalized["article_layout"] == empty_article_layout()
 
 
 @pytest.mark.parametrize("tampering", ["refs", "assets"])

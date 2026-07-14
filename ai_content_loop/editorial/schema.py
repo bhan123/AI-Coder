@@ -5,6 +5,7 @@ import hashlib
 import json
 import re
 from typing import Any
+from urllib.parse import urlparse
 
 from ai_content_loop.visuals.brief import (
     VisualBriefError,
@@ -26,6 +27,7 @@ FINAL_FIELDS = CORE_FIELDS | {
     "editorial_profile",
     "visual_brief",
     "visual_assets",
+    "article_layout",
 }
 MAX_TEXT_CHARS = 200_000
 
@@ -38,6 +40,32 @@ _EDITORIAL_PROFILE_FIELDS = {
     "quality_warnings",
 }
 _VISUAL_ASSET_FIELDS = {"cover", "body"}
+_ARTICLE_LAYOUT_FIELDS = {"theme", "blocks"}
+_ARTICLE_LAYOUT_BLOCK_TYPES = {
+    "hero",
+    "lead",
+    "key_judgment",
+    "section",
+    "workflow_compare",
+    "quote",
+    "callout",
+    "source_note",
+}
+_ARTICLE_LAYOUT_BLOCK_FIELDS = {
+    "hero": {"type", "title", "deck"},
+    "lead": {"type", "text"},
+    "key_judgment": {"type", "text"},
+    "section": {"type", "heading", "paragraphs"},
+    "workflow_compare": {
+        "type",
+        "before",
+        "after",
+        "remaining_friction",
+    },
+    "quote": {"type", "text", "attribution"},
+    "callout": {"type", "text"},
+    "source_note": {"type", "url", "attribution"},
+}
 _VISUAL_ASSET_REF_FIELDS = {
     "asset_id",
     "revision",
@@ -99,6 +127,10 @@ def legacy_editorial_profile() -> dict[str, object]:
 
 def empty_visual_assets() -> dict[str, object]:
     return {"cover": None, "body": []}
+
+
+def empty_article_layout() -> dict[str, object]:
+    return {"theme": "press", "blocks": []}
 
 
 def _validate_text(value: object, field: str) -> str:
@@ -253,11 +285,72 @@ def _validate_visual_assets(value: object, *, dedupe_key: str) -> None:
             )
 
 
+def _validate_article_layout_block(value: object, index: int) -> None:
+    if not isinstance(value, dict):
+        raise FinalSchemaError(
+            f"article_layout.blocks[{index}] must be an object"
+        )
+    block_type = value.get("type")
+    if block_type not in _ARTICLE_LAYOUT_BLOCK_TYPES:
+        raise FinalSchemaError(
+            f"article_layout.blocks[{index}].type is not supported"
+        )
+    if set(value) != _ARTICLE_LAYOUT_BLOCK_FIELDS[block_type]:
+        raise FinalSchemaError(
+            f"article_layout.blocks[{index}] fields do not match "
+            "the supported schema"
+        )
+
+    prefix = f"article_layout.blocks[{index}]"
+    if block_type == "hero":
+        for field in ("title", "deck"):
+            _validate_text(value.get(field), f"{prefix}.{field}")
+    elif block_type in {"lead", "key_judgment", "callout"}:
+        _validate_text(value.get("text"), f"{prefix}.text")
+    elif block_type == "section":
+        _validate_text(value.get("heading"), f"{prefix}.heading")
+        paragraphs = value.get("paragraphs")
+        if not isinstance(paragraphs, list) or not paragraphs:
+            raise FinalSchemaError(
+                f"{prefix}.paragraphs must be a non-empty list"
+            )
+        _validate_text_list(paragraphs, f"{prefix}.paragraphs")
+    elif block_type == "workflow_compare":
+        for field in ("before", "after", "remaining_friction"):
+            _validate_text(value.get(field), f"{prefix}.{field}")
+    elif block_type == "quote":
+        for field in ("text", "attribution"):
+            _validate_text(value.get(field), f"{prefix}.{field}")
+    elif block_type == "source_note":
+        url = _validate_text(value.get("url"), f"{prefix}.url")
+        parsed = urlparse(url)
+        if parsed.scheme != "https" or not parsed.netloc:
+            raise FinalSchemaError(
+                f"{prefix}.url must be an absolute HTTPS URL"
+            )
+        _validate_text(value.get("attribution"), f"{prefix}.attribution")
+
+
+def _validate_article_layout(value: object) -> None:
+    if (
+        not isinstance(value, dict)
+        or set(value) != _ARTICLE_LAYOUT_FIELDS
+        or value.get("theme") != "press"
+        or not isinstance(value.get("blocks"), list)
+    ):
+        raise FinalSchemaError(
+            "article_layout does not match the supported schema"
+        )
+    for index, block in enumerate(value["blocks"]):
+        _validate_article_layout_block(block, index)
+
+
 def _is_trusted_legacy_expanded(value: dict[str, Any]) -> bool:
     return (
         value.get("editorial_profile") == legacy_editorial_profile()
         and value.get("visual_brief") is None
         and value.get("visual_assets") == empty_visual_assets()
+        and value.get("article_layout") == empty_article_layout()
     )
 
 
@@ -276,6 +369,14 @@ def normalize_final_payload(
         normalized["editorial_profile"] = legacy_editorial_profile()
         normalized["visual_brief"] = None
         normalized["visual_assets"] = empty_visual_assets()
+        normalized["article_layout"] = empty_article_layout()
+    elif fields == FINAL_FIELDS - {"article_layout"}:
+        normalized = deepcopy(value)
+        normalized["article_layout"] = empty_article_layout()
+        is_legacy = (
+            allow_legacy_expanded
+            and _is_trusted_legacy_expanded(normalized)
+        )
     elif fields == FINAL_FIELDS:
         is_legacy = (
             allow_legacy_expanded
@@ -305,6 +406,7 @@ def normalize_final_payload(
         normalized["visual_assets"],
         dedupe_key=normalized["dedupe_key"],
     )
+    _validate_article_layout(normalized["article_layout"])
     return normalized
 
 
