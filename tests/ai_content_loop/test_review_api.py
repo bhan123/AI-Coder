@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import subprocess
 
 import pytest
 from werkzeug.security import generate_password_hash
@@ -561,3 +562,134 @@ def test_review_page_exposes_safe_rich_preview_and_approved_export_controls(
     assert "updateWebEditionControls" in script
     assert "clearWebEditionLinks" in script
     assert "richArticlePreview.innerHTML = value.html" in script
+
+
+def test_rich_preview_stays_inside_the_single_scrollable_workspace(
+    review_app,
+):
+    client = review_app.test_client()
+    login(client)
+    html = client.get("/").get_data(as_text=True)
+    css = (
+        Path(__file__).parents[2]
+        / "ai_content_loop"
+        / "review"
+        / "static"
+        / "review.css"
+    ).read_text(encoding="utf-8")
+
+    assert 'id="preview-workspace"' in html
+    assert html.index('id="preview-workspace"') < html.index(
+        'id="rich-preview-pane"'
+    )
+    assert "grid-template-rows: auto auto auto auto auto minmax(0, 1fr) auto;" in css
+    assert ".preview-workspace" in css
+    assert "min-height: 420px" not in css
+
+
+def test_rich_preview_runtime_discards_stale_response_and_recovers_button():
+    script_path = (
+        Path(__file__).parents[2]
+        / "ai_content_loop"
+        / "review"
+        / "static"
+        / "review.js"
+    )
+    node_script = r'''
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const vm = require("node:vm");
+const source = fs.readFileSync(process.argv[1], "utf8");
+
+class Element {
+  constructor() {
+    this.hidden = false;
+    this.disabled = false;
+    this.textContent = "";
+    this.innerHTML = "";
+    this.value = "";
+    this.content = "csrf";
+    this.dataset = {};
+    this.className = "";
+    this.classList = {add() {}, remove() {}, toggle() {}};
+  }
+  addEventListener() {}
+  append() {}
+  replaceChildren(...children) { this.children = children; }
+}
+
+const elements = new Map();
+function element(selector) {
+  if (!elements.has(selector)) elements.set(selector, new Element());
+  return elements.get(selector);
+}
+let resolveRichResponse;
+const context = {
+  URL,
+  console,
+  document: {
+    querySelector: element,
+    querySelectorAll: () => [],
+    createElement: () => new Element(),
+  },
+  navigator: {clipboard: {writeText: async () => {}}},
+  window: {
+    location: {origin: "https://review.example", assign() {}},
+    setTimeout(callback) { callback(); return 0; },
+    confirm() { return true; },
+    addEventListener() {},
+  },
+  fetch(path) {
+    if (path === "/api/rich-preview") {
+      return new Promise((resolve) => {
+        resolveRichResponse = () => resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({html: "<p>stale rich preview</p>"}),
+        });
+      });
+    }
+    return Promise.resolve({
+      ok: true,
+      status: 200,
+      json: async () => ({articles: []}),
+    });
+  },
+};
+context.globalThis = context;
+vm.createContext(context);
+vm.runInContext(
+  `${source}\nglobalThis.__reviewHooks = {state, showRichPreview, invalidateRichPreview};`,
+  context,
+);
+
+(async () => {
+  const hooks = context.__reviewHooks;
+  const button = element("#rich-preview-button");
+  const pane = element("#rich-preview-pane");
+  const article = element("#rich-article-preview");
+  hooks.state.articleId = "old-article";
+  const pending = hooks.showRichPreview();
+  await Promise.resolve();
+  assert.equal(button.disabled, true);
+
+  hooks.invalidateRichPreview();
+  assert.equal(button.disabled, false);
+  assert.equal(pane.hidden, true);
+  resolveRichResponse();
+  await pending;
+  assert.notEqual(article.innerHTML, "<p>stale rich preview</p>");
+})().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
+'''
+
+    completed = subprocess.run(
+        ["node", "-e", node_script, str(script_path)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr

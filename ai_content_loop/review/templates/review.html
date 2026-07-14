@@ -141,44 +141,46 @@
           <button id="show-preview-button" type="button">预览</button>
         </div>
 
-        <div id="content-panes" class="content-panes show-editor">
-          <section class="editor-pane">
-            <div class="pane-title">Markdown</div>
-            <textarea
-              id="markdown-editor"
-              spellcheck="false"
-              aria-label="Markdown 正文"
-            ></textarea>
-          </section>
-          <section class="preview-pane">
-            <div class="pane-title">发布排版预览</div>
+        <div id="preview-workspace" class="preview-workspace">
+          <div id="content-panes" class="content-panes show-editor">
+            <section class="editor-pane">
+              <div class="pane-title">Markdown</div>
+              <textarea
+                id="markdown-editor"
+                spellcheck="false"
+                aria-label="Markdown 正文"
+              ></textarea>
+            </section>
+            <section class="preview-pane">
+              <div class="pane-title">发布排版预览</div>
+              <article
+                id="article-preview"
+                class="article-preview"
+              ></article>
+            </section>
+          </div>
+
+          <section
+            id="rich-preview-pane"
+            class="rich-preview-pane"
+            aria-label="富阅读预览"
+            hidden
+          >
+            <div class="pane-title rich-preview-heading">
+              <span>富阅读预览</span>
+              <button
+                id="rich-preview-close-button"
+                class="quiet"
+                type="button"
+              >关闭并返回发布排版预览</button>
+            </div>
             <article
-              id="article-preview"
-              class="article-preview"
+              id="rich-article-preview"
+              class="article-preview rich-article-preview"
+              aria-live="polite"
             ></article>
           </section>
         </div>
-
-        <section
-          id="rich-preview-pane"
-          class="rich-preview-pane"
-          aria-label="富阅读预览"
-          hidden
-        >
-          <div class="pane-title rich-preview-heading">
-            <span>富阅读预览</span>
-            <button
-              id="rich-preview-close-button"
-              class="quiet"
-              type="button"
-            >关闭并返回发布排版预览</button>
-          </div>
-          <article
-            id="rich-article-preview"
-            class="article-preview rich-article-preview"
-            aria-live="polite"
-          ></article>
-        </section>
 
         <footer class="actionbar">
           <div>

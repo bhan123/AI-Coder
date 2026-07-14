@@ -169,6 +169,13 @@ function setArticleStatus(status) {
   updateWebEditionControls();
 }
 
+function invalidateRichPreview() {
+  state.richPreviewRequest += 1;
+  richPreviewPane.hidden = true;
+  contentPanes.hidden = false;
+  richPreviewButton.disabled = false;
+}
+
 function formatArticleDate(article) {
   return article.generated_date || "未知日期";
 }
@@ -277,6 +284,7 @@ async function openArticle(articleId) {
   ) {
     return;
   }
+  invalidateRichPreview();
   try {
     const value = await api(
       `/api/articles/${encodeURIComponent(articleId)}`,
@@ -291,7 +299,6 @@ async function openArticle(articleId) {
     );
     setArticleStatus(article?.status || "untracked");
     clearWebEditionLinks();
-    richPreviewPane.hidden = true;
     titleInput.value = state.payload.master_title;
     columnInput.value = state.payload.column;
     emptyState.hidden = true;
@@ -341,6 +348,7 @@ async function saveArticle() {
     state.dirty = false;
     setArticleStatus("needs_human_review");
     clearWebEditionLinks();
+    invalidateRichPreview();
     renderWarnings(value.warnings);
     renderVisuals();
     notify("修改已保存，并创建了历史版本。");
@@ -413,6 +421,7 @@ async function rerenderVisuals({copyIndex = state.visualCopyIndex} = {}) {
     state.dirty = false;
     setArticleStatus("needs_human_review");
     clearWebEditionLinks();
+    invalidateRichPreview();
     renderWarnings(value.warnings);
     renderVisuals();
     schedulePreview();
@@ -482,6 +491,7 @@ async function restoreHistory(historyId) {
     state.dirty = false;
     setArticleStatus("needs_human_review");
     clearWebEditionLinks();
+    invalidateRichPreview();
     titleInput.value = state.payload.master_title;
     columnInput.value = state.payload.column;
     markdownEditor.value = bodyFor(state.platform);
@@ -507,6 +517,7 @@ async function showRichPreview() {
   const articleId = state.articleId;
   const requestId = ++state.richPreviewRequest;
   richPreviewButton.disabled = true;
+  contentPanes.hidden = true;
   richPreviewPane.hidden = false;
   richArticlePreview.textContent = "正在生成富阅读预览…";
   try {
@@ -531,7 +542,7 @@ async function showRichPreview() {
 }
 
 function closeRichPreview() {
-  richPreviewPane.hidden = true;
+  invalidateRichPreview();
   showMobilePane("preview");
 }
 
@@ -599,7 +610,7 @@ for (const input of [titleInput, columnInput, markdownEditor]) {
     state.dirty = true;
     clearWebEditionLinks();
     updateWebEditionControls();
-    richPreviewPane.hidden = true;
+    invalidateRichPreview();
     if (input === markdownEditor) {
       schedulePreview();
     }
