@@ -718,8 +718,9 @@ def test_review_page_exposes_safe_rich_preview_and_approved_export_controls(
 
 
 class _FakeWechatClient:
-    def __init__(self, *, fail=False):
+    def __init__(self, *, fail=False, fail_draft=False):
         self.fail = fail
+        self.fail_draft = fail_draft
         self.calls = []
 
     def get_access_token(self):
@@ -739,7 +740,11 @@ class _FakeWechatClient:
         return "https://mmbiz.qpic.cn/body.png"
 
     def add_draft(self, token, *, title, content, thumb_media_id):
+        from ai_content_loop.wechat.client import WechatApiError
+
         self.calls.append(("draft", title, content, thumb_media_id))
+        if self.fail_draft:
+            raise WechatApiError("WeChat API request failed")
         return "draft-media"
 
 
@@ -853,6 +858,43 @@ def test_wechat_draft_api_creates_once_and_returns_persisted_success(review_app)
     )
     assert "https://mmbiz.qpic.cn/body.png" in draft_call[2]
     assert "<script" not in draft_call[2]
+
+    review_app.extensions["wechat_client"] = None
+    persisted = client.get(f"/api/articles/{article_id}").get_json()
+    assert persisted["wechat_draft"]["status"] == "success"
+    assert persisted["wechat_draft"]["media_id"] == "draft-media"
+
+
+def test_wechat_draft_api_blocks_retry_when_create_result_is_unknown(review_app):
+    article_id = _prepare_approved_wechat_article(review_app)
+    fake = _FakeWechatClient(fail_draft=True)
+    review_app.extensions["wechat_client"] = fake
+    client = review_app.test_client()
+    csrf = login(client)
+    loaded = client.get(f"/api/articles/{article_id}").get_json()
+
+    first = client.post(
+        f"/api/articles/{article_id}/wechat/draft",
+        json={"version": loaded["version"]},
+        headers={"X-CSRF-Token": csrf},
+    )
+    second = client.post(
+        f"/api/articles/{article_id}/wechat/draft",
+        json={"version": loaded["version"]},
+        headers={"X-CSRF-Token": csrf},
+    )
+
+    assert first.status_code == 502
+    assert first.get_json()["status"] == "pending"
+    assert second.status_code == 400
+    assert "核对" in second.get_json()["detail"]
+    assert len(
+        [call for call in fake.calls if isinstance(call, tuple) and call[0] == "draft"]
+    ) == 1
+    row = review_app.extensions["article_repository"].store.get_wechat_draft_sync(
+        DEDUPE_KEY, loaded["version"]
+    )
+    assert row["status"] == "pending"
 
 
 def test_wechat_draft_api_persists_safe_error_without_credentials(review_app):

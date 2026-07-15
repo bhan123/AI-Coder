@@ -100,9 +100,11 @@ async function api(path, options = {}) {
     if (response.status === 409) {
       throw new Error("文章已在其他页面修改，请刷新后重试。");
     }
-    throw new Error(
+    const error = new Error(
       value.detail || value.error || `请求失败（${response.status}）`,
     );
+    error.apiStatus = value.status;
+    throw error;
   }
   return value;
 }
@@ -174,6 +176,7 @@ function updateWechatDraftControls() {
     not_synced: "未同步",
     success: "已进入公众号草稿箱",
     error: "同步失败，可重试",
+    pending: "结果待确认，请到公众号后台核对",
   };
   wechatDraftStatus.textContent = (
     labels[state.wechatDraftStatus] || state.wechatDraftStatus
@@ -185,6 +188,7 @@ function updateWechatDraftControls() {
     || state.wechatDraftRequestActive
     || state.wechatDraftStatus === "not_configured"
     || state.wechatDraftStatus === "success"
+    || state.wechatDraftStatus === "pending"
   );
 }
 
@@ -648,7 +652,7 @@ async function syncWechatDraft() {
         : "已同步到公众号草稿箱。",
     );
   } catch (error) {
-    state.wechatDraftStatus = "error";
+    state.wechatDraftStatus = error.apiStatus || "error";
     notify(error.message, "error");
   } finally {
     state.wechatDraftRequestActive = false;

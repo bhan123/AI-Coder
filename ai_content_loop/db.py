@@ -422,7 +422,7 @@ class ContentStore:
         media_id: str | None,
         error: str | None,
     ) -> None:
-        if status not in {"success", "error"}:
+        if status not in {"success", "error", "pending"}:
             raise ValueError("unsupported WeChat draft sync status")
         with self.connect() as conn:
             conn.execute(

@@ -6,7 +6,7 @@ from pathlib import Path
 import secrets
 from typing import Callable
 from urllib.parse import urlencode, urlparse
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 
 class WechatApiError(RuntimeError):
@@ -16,8 +16,14 @@ class WechatApiError(RuntimeError):
 Transport = Callable[[Request], bytes]
 
 
+class _NoRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 def _default_transport(request: Request) -> bytes:
-    with urlopen(request, timeout=30) as response:
+    opener = build_opener(_NoRedirectHandler())
+    with opener.open(request, timeout=30) as response:
         return response.read()
 
 
@@ -30,6 +36,17 @@ class WechatClient:
         api_base_url: str = "https://api.weixin.qq.com",
         transport: Transport | None = None,
     ) -> None:
+        parsed_base = urlparse(api_base_url)
+        if (
+            parsed_base.scheme != "https"
+            or not parsed_base.netloc
+            or parsed_base.hostname is None
+            or parsed_base.username is not None
+            or parsed_base.password is not None
+            or parsed_base.query
+            or parsed_base.fragment
+        ):
+            raise ValueError("WeChat API base URL must be a safe HTTPS URL")
         self._app_id = app_id
         self._app_secret = app_secret
         self._base = api_base_url.rstrip("/")

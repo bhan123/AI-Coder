@@ -33,6 +33,7 @@ from ai_content_loop.review.repository import (
     ArticleNotFound,
     ArticleRepository,
     InvalidArticle,
+    WechatDraftResultUnknown,
 )
 from ai_content_loop.visuals.assets import AssetPublicationError
 from ai_content_loop.visuals.pipeline import generate_visual_assets
@@ -191,6 +192,17 @@ def create_app(test_config: dict | None = None) -> Flask:
             502,
         )
 
+    @app.errorhandler(WechatDraftResultUnknown)
+    def wechat_draft_result_unknown(error):
+        return (
+            jsonify(
+                error="wechat_draft_result_unknown",
+                detail=str(error),
+                status="pending",
+            ),
+            502,
+        )
+
     @app.get("/")
     @login_required
     def review_page():
@@ -261,7 +273,13 @@ def create_app(test_config: dict | None = None) -> Flask:
     def get_article(article_id: str):
         value = repository.load_article(article_id)
         current = repository.wechat_draft_status(article_id)
-        if app.extensions.get("wechat_client") is None:
+        if current is not None and current["status"] == "success":
+            value["wechat_draft"] = {
+                "status": current["status"],
+                "media_id": current["media_id"],
+                "error": current["error"],
+            }
+        elif app.extensions.get("wechat_client") is None:
             value["wechat_draft"] = {"status": "not_configured"}
         elif current is None:
             value["wechat_draft"] = {"status": "not_synced"}

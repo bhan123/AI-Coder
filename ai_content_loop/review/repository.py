@@ -48,6 +48,10 @@ class InvalidArticle(ValueError):
     """The submitted article does not match the final article schema."""
 
 
+class WechatDraftResultUnknown(RuntimeError):
+    """WeChat may have accepted the draft, so an automatic retry is unsafe."""
+
+
 _APPROVAL_FAILURE_LABELS = {
     "missing_cover_asset": "缺少封面图",
     "missing_body_asset": "缺少正文配图",
@@ -519,6 +523,10 @@ class ArticleRepository:
                         "content_version": current_version,
                         "idempotent": True,
                     }
+                if existing is not None and existing["status"] == "pending":
+                    raise InvalidArticle(
+                        "公众号草稿同步结果待确认，请先在公众号后台核对，避免重复创建"
+                    )
 
                 references = self.asset_references(article_id)
                 cover = references.get("cover")
@@ -549,12 +557,6 @@ class ArticleRepository:
                         fallback_markdown=fallback_markdown,
                         body_image_url=body_url,
                     )
-                    media_id = client.add_draft(
-                        token,
-                        title=str(payload["master_title"]),
-                        content=html,
-                        thumb_media_id=cover_media_id,
-                    )
                 except WechatApiError as error:
                     self.store.record_wechat_draft_sync(
                         payload["dedupe_key"],
@@ -564,6 +566,24 @@ class ArticleRepository:
                         error=str(error),
                     )
                     raise
+                self.store.record_wechat_draft_sync(
+                    payload["dedupe_key"],
+                    current_version,
+                    status="pending",
+                    media_id=None,
+                    error="WeChat draft result is unknown",
+                )
+                try:
+                    media_id = client.add_draft(
+                        token,
+                        title=str(payload["master_title"]),
+                        content=html,
+                        thumb_media_id=cover_media_id,
+                    )
+                except WechatApiError as error:
+                    raise WechatDraftResultUnknown(
+                        "公众号可能已接收草稿，请先在后台核对，系统不会自动重试"
+                    ) from error
                 self.store.record_wechat_draft_sync(
                     payload["dedupe_key"],
                     current_version,

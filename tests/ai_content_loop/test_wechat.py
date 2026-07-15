@@ -1,4 +1,5 @@
 import json
+from urllib.request import Request
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -62,6 +63,59 @@ class FakeTransport:
     def __call__(self, request):
         self.requests.append(request)
         return json.dumps(self.responses.pop(0)).encode("utf-8")
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "http://api.weixin.qq.com",
+        "https://user:pass@api.weixin.qq.com",
+        "https://api.weixin.qq.com?token=unsafe",
+        "https://api.weixin.qq.com/#fragment",
+    ],
+)
+def test_wechat_client_rejects_unsafe_api_base_urls(base_url):
+    from ai_content_loop.wechat.client import WechatClient
+
+    with pytest.raises(ValueError, match="safe HTTPS URL"):
+        WechatClient("app-id", "super-secret", api_base_url=base_url)
+
+
+def test_default_wechat_transport_disables_redirects(monkeypatch):
+    import ai_content_loop.wechat.client as client_module
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def read(self):
+            return b"{}"
+
+    class Opener:
+        def open(self, request, timeout):
+            assert timeout == 30
+            return Response()
+
+    handlers = []
+
+    def fake_build_opener(*values):
+        handlers.extend(values)
+        return Opener()
+
+    monkeypatch.setattr(client_module, "build_opener", fake_build_opener, raising=False)
+    monkeypatch.setattr(
+        client_module,
+        "urlopen",
+        lambda *_args, **_kwargs: pytest.fail("redirect-following urlopen was used"),
+        raising=False,
+    )
+
+    assert client_module._default_transport(Request("https://api.weixin.qq.com")) == b"{}"
+    assert handlers
+    assert handlers[0].redirect_request(None, None, None, None, {}, None) is None
 
 
 def test_wechat_client_calls_only_token_material_uploadimg_and_draft_endpoints(
@@ -168,3 +222,20 @@ def test_wechat_draft_sync_store_is_idempotent_and_failure_cannot_overwrite_succ
     assert row["status"] == "success"
     assert row["media_id"] == "draft-one"
     assert row["error"] is None
+
+
+def test_wechat_draft_sync_store_supports_pending_result(tmp_path):
+    from ai_content_loop.db import ContentStore
+
+    store = ContentStore(tmp_path / "content.sqlite3")
+    store.initialize()
+    store.record_wechat_draft_sync(
+        "github:owner/repo",
+        "v1",
+        status="pending",
+        media_id=None,
+        error="WeChat draft result is unknown",
+    )
+
+    row = store.get_wechat_draft_sync("github:owner/repo", "v1")
+    assert row["status"] == "pending"
