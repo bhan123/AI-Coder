@@ -7,7 +7,7 @@ import pytest
 from werkzeug.security import generate_password_hash
 
 from ai_content_loop.db import ContentStore
-from ai_content_loop.editorial.schema import article_id_for
+from ai_content_loop.editorial.schema import ARTICLE_THEMES, article_id_for
 from ai_content_loop.generation import validate_generation_payload
 from ai_content_loop.models import SourceItem
 from ai_content_loop.review.app import create_app
@@ -329,6 +329,7 @@ def test_rich_preview_keeps_source_urls_as_non_navigable_text(review_app):
     payload = json.loads(article_path.read_text(encoding="utf-8"))
     payload["article_layout"] = {
         "theme": "press",
+        "structure": "briefing",
         "blocks": [
             {
                 "type": "source_note",
@@ -366,6 +367,7 @@ def generated_press_payload():
     lead = payload["master_markdown"].split("\n\n", 1)[0]
     payload["article_layout"] = {
         "theme": "press",
+        "structure": "briefing",
         "blocks": [
             {"type": "hero", "title": title, "deck": lead},
             {"type": "lead", "text": lead},
@@ -390,7 +392,11 @@ def test_rich_preview_fallback_allows_no_protocol_relative_url(review_app):
     article_path = Path(review_app.config["FINAL_DIR"]) / "repo.json"
     payload = json.loads(article_path.read_text(encoding="utf-8"))
     payload["master_markdown"] = "[绕过](//example.com/path)\n\n![图](//example.com/a.png)"
-    payload["article_layout"] = {"theme": "press", "blocks": []}
+    payload["article_layout"] = {
+        "theme": "press",
+        "structure": "briefing",
+        "blocks": [],
+    }
     article_path.write_text(
         json.dumps(payload, ensure_ascii=False),
         encoding="utf-8",
@@ -477,7 +483,10 @@ def test_generated_press_article_can_be_approved_exported_and_is_revoked_on_edit
         headers={"X-CSRF-Token": csrf},
     )
     assert preview.status_code == 200
-    assert 'class="rich-article"' in preview.get_json()["html"]
+    assert (
+        'class="rich-article rich-article--press rich-article--briefing"'
+        in preview.get_json()["html"]
+    )
 
     approved = client.post(
         f"/api/articles/{article_id}/status",
@@ -538,6 +547,9 @@ def test_review_page_serves_rich_article_styles_from_own_static_origin(
 
     assert ".rich-article__toc" in css
     assert ".rich-article__hero" in css
+    for theme in ARTICLE_THEMES:
+        assert f".rich-article--{theme}" in css
+        assert f"--rich-theme: {theme};" in css
 
 
 def test_create_app_loads_production_environment(monkeypatch, tmp_path):

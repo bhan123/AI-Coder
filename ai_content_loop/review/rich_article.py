@@ -4,6 +4,7 @@ from html import escape
 import re
 from urllib.parse import urlparse
 
+from ai_content_loop.editorial.schema import ARTICLE_STRUCTURES, ARTICLE_THEMES
 from ai_content_loop.review.rendering import render_markdown
 
 
@@ -32,13 +33,26 @@ def _nonempty_text(value: object) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
 
-def _trusted_press_layout(value: object) -> bool:
+def _normalize_layout_for_rendering(value: object) -> object:
+    """Expand the legacy persisted press layout without mutating it."""
+
+    if (
+        isinstance(value, dict)
+        and set(value) == {"theme", "blocks"}
+        and value.get("theme") == "press"
+    ):
+        return {**value, "structure": "briefing"}
+    return value
+
+
+def _trusted_article_layout(value: object) -> bool:
     """Defensively re-check the persisted schema before rendering it."""
 
     if (
         not isinstance(value, dict)
-        or set(value) != {"theme", "blocks"}
-        or value.get("theme") != "press"
+        or set(value) != {"theme", "structure", "blocks"}
+        or value.get("theme") not in ARTICLE_THEMES
+        or value.get("structure") not in ARTICLE_STRUCTURES
         or not isinstance(value.get("blocks"), list)
     ):
         return False
@@ -89,6 +103,15 @@ def _trusted_press_layout(value: object) -> bool:
             ):
                 return False
     return True
+
+
+def article_theme_for_layout(article_layout: object) -> str | None:
+    """Return a trusted persisted theme for renderer-owned presentation."""
+
+    layout = _normalize_layout_for_rendering(article_layout)
+    if not _trusted_article_layout(layout):
+        return None
+    return str(layout["theme"])
 
 
 def _fallback_html(*, title: object, markdown: object) -> str:
@@ -175,14 +198,15 @@ def render_rich_article(
 ) -> str:
     """Render trusted semantic blocks, never model-owned markup or styles."""
 
-    if not _trusted_press_layout(article_layout) or not article_layout["blocks"]:
+    layout = _normalize_layout_for_rendering(article_layout)
+    if not _trusted_article_layout(layout) or not layout["blocks"]:
         return _allow_only_safe_reading_attributes(
             _fallback_html(title=fallback_title, markdown=fallback_markdown)
         )
 
     sections = [
         str(block["heading"])
-        for block in article_layout["blocks"]
+        for block in layout["blocks"]
         if block["type"] == "section"
     ]
     toc_html = ""
@@ -199,12 +223,14 @@ def render_rich_article(
 
     section_index = 0
     rendered: list[str] = []
-    for block in article_layout["blocks"]:
+    for block in layout["blocks"]:
         if block["type"] == "section":
             section_index += 1
         rendered.append(_render_block(block, section_index))
     return _allow_only_safe_reading_attributes(
-        '<article class="rich-article">'
+        '<article class="rich-article '
+        f'rich-article--{layout["theme"]} '
+        f'rich-article--{layout["structure"]}">'
         f"{toc_html}{''.join(rendered)}"
         "</article>"
     )

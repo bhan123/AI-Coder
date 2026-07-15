@@ -1,3 +1,6 @@
+import pytest
+
+from ai_content_loop.editorial.schema import ARTICLE_STRUCTURES, ARTICLE_THEMES
 from ai_content_loop.review.rendering import render_markdown
 
 
@@ -99,6 +102,125 @@ def test_render_rich_article_renders_whitelisted_press_blocks_as_escaped_html():
     assert 'href="https://example.com/source"' not in html
     assert "target=" not in html
     assert "主要发现" in html
+
+
+@pytest.mark.parametrize("theme", ARTICLE_THEMES)
+@pytest.mark.parametrize("structure", ARTICLE_STRUCTURES)
+def test_render_rich_article_preserves_semantic_blocks_for_every_theme_and_structure(
+    theme,
+    structure,
+):
+    from ai_content_loop.review.rich_article import render_rich_article
+
+    html = render_rich_article(
+        {
+            "theme": theme,
+            "structure": structure,
+            "blocks": [
+                {"type": "hero", "title": "Title", "deck": "Deck"},
+                {"type": "lead", "text": "Lead"},
+                {
+                    "type": "section",
+                    "heading": "Finding",
+                    "paragraphs": ["Evidence"],
+                },
+            ],
+        }
+    )
+
+    assert (
+        f'<article class="rich-article rich-article--{theme} '
+        f'rich-article--{structure}">' in html
+    )
+    assert 'class="rich-article__hero"' in html
+    assert 'class="rich-article__lead"' in html
+    assert 'class="rich-article__toc"' in html
+    assert '<section id="section-1">' in html
+
+
+def test_render_rich_article_expands_a_legacy_two_key_layout_in_memory():
+    from ai_content_loop.review.rich_article import render_rich_article
+
+    html = render_rich_article(
+        {
+            "theme": "press",
+            "blocks": [{"type": "lead", "text": "Legacy content"}],
+        }
+    )
+
+    assert (
+        '<article class="rich-article rich-article--press '
+        'rich-article--briefing">' in html
+    )
+
+
+def test_render_rich_article_falls_back_for_an_unknown_theme_and_escapes_text():
+    from ai_content_loop.review.rich_article import render_rich_article
+
+    html = render_rich_article(
+        {
+            "theme": "neon",
+            "structure": "briefing",
+            "blocks": [{"type": "lead", "text": "<script>alert(1)</script>"}],
+        },
+        fallback_title="<script>title()</script>",
+        fallback_markdown="<script>alert(2)</script>",
+    )
+
+    assert 'class="rich-article rich-article--fallback"' in html
+    assert "<script" not in html
+    assert "&lt;script&gt;title()&lt;/script&gt;" in html
+
+
+def test_render_rich_article_escapes_every_textual_block_value():
+    from ai_content_loop.review.rich_article import render_rich_article
+
+    unsafe = "<script>alert(1)</script>"
+    html = render_rich_article(
+        {
+            "theme": "tufte",
+            "structure": "essay",
+            "blocks": [
+                {"type": "hero", "title": unsafe, "deck": unsafe},
+                {"type": "lead", "text": unsafe},
+                {"type": "key_judgment", "text": unsafe},
+                {"type": "section", "heading": unsafe, "paragraphs": [unsafe]},
+                {
+                    "type": "workflow_compare",
+                    "before": unsafe,
+                    "after": unsafe,
+                    "remaining_friction": unsafe,
+                },
+                {"type": "quote", "text": unsafe, "attribution": unsafe},
+                {"type": "callout", "text": unsafe},
+                {
+                    "type": "source_note",
+                    "url": "https://example.com/source",
+                    "attribution": unsafe,
+                },
+            ],
+        }
+    )
+
+    assert "<script" not in html
+    assert html.count("&lt;script&gt;alert(1)&lt;/script&gt;") == 14
+
+
+@pytest.mark.parametrize("theme", ARTICLE_THEMES)
+def test_web_edition_selects_the_persisted_theme_css(theme):
+    from ai_content_loop.review.web_edition import render_web_edition
+
+    html = render_web_edition(
+        {
+            "theme": theme,
+            "structure": "briefing",
+            "blocks": [{"type": "lead", "text": "Theme content"}],
+        },
+        title="Theme edition",
+    )
+
+    assert f"rich-article--{theme}" in html
+    assert f"--rich-theme: {theme};" in html
 
 
 def test_rich_article_fallback_has_no_external_navigation_or_resources():

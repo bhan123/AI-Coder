@@ -7,10 +7,14 @@ import re
 import tempfile
 
 from ai_content_loop.durability import fsync_directory
-from ai_content_loop.review.rich_article import render_rich_article
+from ai_content_loop.editorial.schema import ARTICLE_THEMES
+from ai_content_loop.review.rich_article import (
+    article_theme_for_layout,
+    render_rich_article,
+)
 
 
-_PRESS_CSS = """
+_BASE_CSS = """
 * { box-sizing: border-box; }
 body { background: #f7fafc; color: #1f2933; margin: 0; }
 .web-edition { background: #fff; margin: 2rem auto; max-width: 820px; padding: 3rem; }
@@ -30,6 +34,34 @@ body { background: #f7fafc; color: #1f2933; margin: 0; }
 .rich-article__source a { color: #186faf; overflow-wrap: anywhere; }
 @media (max-width: 680px) { .web-edition { margin: 0; padding: 1.25rem; } .rich-article__hero h1 { font-size: 1.8rem; } }
 """.strip()
+_THEME_CSS = {
+    "press": """
+.rich-article--press { --rich-theme: press; color: #1f2933; font-family: Georgia, "Times New Roman", serif; }
+.rich-article--press .rich-article__hero { border-color: #1f2933; }
+.rich-article--press .rich-article__judgment, .rich-article--press .rich-article__callout { background: #f0f4f8; }
+""".strip(),
+    "tufte": """
+.rich-article--tufte { --rich-theme: tufte; color: #25211c; font-family: Georgia, "Times New Roman", serif; line-height: 1.85; }
+.rich-article--tufte .rich-article__hero { border-bottom: 1px solid #9a8565; }
+.rich-article--tufte .rich-article__judgment, .rich-article--tufte .rich-article__callout { background: #f8f3ea; border-radius: 0; }
+.rich-article--tufte .rich-article__quote { border-color: #8d5c35; }
+""".strip(),
+    "magazine": """
+.rich-article--magazine { --rich-theme: magazine; color: #1a2238; font-family: "Trebuchet MS", Arial, sans-serif; line-height: 1.7; }
+.rich-article--magazine .rich-article__hero { border-bottom: 5px solid #e24a3b; }
+.rich-article--magazine .rich-article__judgment, .rich-article--magazine .rich-article__callout { background: #edf3fb; border-radius: 0.7rem; }
+.rich-article--magazine .rich-article__quote { border-color: #e24a3b; }
+""".strip(),
+    "vignelli": """
+.rich-article--vignelli { --rich-theme: vignelli; color: #111; font-family: Arial, Helvetica, sans-serif; line-height: 1.6; }
+.rich-article--vignelli .rich-article__hero { border-bottom: 6px solid #d91e18; }
+.rich-article--vignelli .rich-article__judgment, .rich-article--vignelli .rich-article__callout { background: #f5f5f2; border-radius: 0; }
+.rich-article--vignelli .rich-article__quote { border-color: #111; }
+""".strip(),
+}
+
+if set(_THEME_CSS) != set(ARTICLE_THEMES):
+    raise RuntimeError("web edition CSS must cover every supported article theme")
 _IMAGE_TAG = re.compile(r"<img\b[^>]*>", re.IGNORECASE)
 _DATA_IMAGE_URL = re.compile(
     r"data:image/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]*={0,2}\Z"
@@ -46,6 +78,7 @@ def render_web_edition(
     """Return a portable document using only renderer-owned presentation."""
 
     safe_title = title if isinstance(title, str) else ""
+    theme = article_theme_for_layout(article_layout) or "press"
     article_html = render_rich_article(
         article_layout,
         fallback_title=safe_title,
@@ -70,7 +103,7 @@ def render_web_edition(
         '<meta http-equiv="Content-Security-Policy" '
         "content=\"default-src 'none'; style-src 'unsafe-inline'; img-src data:\">\n"
         f"<title>{escape(safe_title)}</title>\n"
-        f"<style>{_PRESS_CSS}</style>\n"
+        f"<style>{_BASE_CSS}\n{_THEME_CSS[theme]}</style>\n"
         "</head>\n<body>\n"
         f'<main class="web-edition">{image_html}{article_html}</main>\n'
         "</body>\n</html>\n"

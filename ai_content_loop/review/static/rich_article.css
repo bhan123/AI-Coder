@@ -83,3 +83,64 @@
   color: #186faf;
   overflow-wrap: anywhere;
 }
+
+.rich-article--press {
+  --rich-theme: press;
+  color: #1f2933;
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+.rich-article--press .rich-article__hero {
+  border-color: #1f2933;
+}
+
+.rich-article--tufte {
+  --rich-theme: tufte;
+  color: #25211c;
+  font-family: Georgia, "Times New Roman", serif;
+  line-height: 1.85;
+}
+
+.rich-article--tufte .rich-article__hero {
+  border-bottom: 1px solid #9a8565;
+}
+
+.rich-article--tufte .rich-article__judgment,
+.rich-article--tufte .rich-article__callout {
+  background: #f8f3ea;
+  border-radius: 0;
+}
+
+.rich-article--magazine {
+  --rich-theme: magazine;
+  color: #1a2238;
+  font-family: "Trebuchet MS", Arial, sans-serif;
+  line-height: 1.7;
+}
+
+.rich-article--magazine .rich-article__hero {
+  border-bottom: 5px solid #e24a3b;
+}
+
+.rich-article--magazine .rich-article__judgment,
+.rich-article--magazine .rich-article__callout {
+  background: #edf3fb;
+  border-radius: 0.7rem;
+}
+
+.rich-article--vignelli {
+  --rich-theme: vignelli;
+  color: #111;
+  font-family: Arial, Helvetica, sans-serif;
+  line-height: 1.6;
+}
+
+.rich-article--vignelli .rich-article__hero {
+  border-bottom: 6px solid #d91e18;
+}
+
+.rich-article--vignelli .rich-article__judgment,
+.rich-article--vignelli .rich-article__callout {
+  background: #f5f5f2;
+  border-radius: 0;
+}
