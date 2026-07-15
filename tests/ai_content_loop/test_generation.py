@@ -1,4 +1,5 @@
 import ctypes
+from copy import deepcopy
 import json
 import locale
 import os
@@ -8,9 +9,11 @@ import sys
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+from ai_content_loop.editorial.schema import ARTICLE_STRUCTURES, ARTICLE_THEMES
 import ai_content_loop.generation as generation
 from ai_content_loop.generation import (
     PLATFORMS,
@@ -266,9 +269,7 @@ def test_generate_runs_factual_then_editorial_pass(tmp_path):
     def runner(argv, **kwargs):
         calls.append(argv[-1])
         payload = valid_core_payload() if len(calls) == 1 else enriched_payload()
-        return subprocess.CompletedProcess(
-            argv, 0, stdout=json.dumps(payload, ensure_ascii=False), stderr=""
-        )
+        return successful_process(argv, payload)
 
     outcome = run_generation(tmp_path, runner, retries=0)
 
@@ -276,6 +277,105 @@ def test_generate_runs_factual_then_editorial_pass(tmp_path):
     assert outcome.attempts == 2
     assert "只写事实稿" in calls[0]
     assert "懂技术的损友" in calls[1]
+
+
+def test_generate_layout_request_is_selected_once_and_reused_for_editorial_retry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    selections: list[tuple[str, ...]] = []
+    calls: list[str] = []
+    requested_layout = {"theme": "vignelli", "structure": "essay"}
+    matching_payload = enriched_payload()
+    matching_payload["article_layout"].update(requested_layout)
+    outputs = [valid_core_payload(), {"invalid": "editorial"}, matching_payload]
+
+    def choose(options: tuple[str, ...]) -> str:
+        selections.append(options)
+        return ["vignelli", "essay"][len(selections) - 1]
+
+    monkeypatch.setattr(
+        generation,
+        "secrets",
+        SimpleNamespace(choice=choose),
+        raising=False,
+    )
+
+    def runner(argv, **_kwargs):
+        calls.append(argv[-1])
+        payload = outputs.pop(0)
+        return successful_process(argv, payload)
+
+    outcome = run_generation(tmp_path, runner, retries=1)
+    persisted = json.loads(outcome.output_path.read_text(encoding="utf-8"))
+    editorial_inputs = [
+        json.loads(prompt.split("Input bundle JSON:\n", 1)[1].split(
+            "\n\nReturn exactly one complete JSON object", 1
+        )[0])
+        for prompt in calls
+        if "懂技术的损友" in prompt
+    ]
+
+    assert outcome.status == "generated"
+    assert selections == [
+        ARTICLE_THEMES,
+        ARTICLE_STRUCTURES,
+    ]
+    assert [input_["requested_article_layout"] for input_ in editorial_inputs] == [
+        requested_layout,
+        requested_layout,
+    ]
+    assert persisted["article_layout"]["theme"] == "vignelli"
+    assert persisted["article_layout"]["structure"] == "essay"
+
+
+def test_generate_layout_request_retries_when_hermes_does_not_echo_requested_pair(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    calls: list[str] = []
+    requested_layout = {"theme": "vignelli", "structure": "essay"}
+    mismatched_payload = enriched_payload()
+    matching_payload = enriched_payload()
+    matching_payload["article_layout"].update(requested_layout)
+    outputs = [valid_core_payload(), mismatched_payload, matching_payload]
+
+    def choose(_options: tuple[str, ...]) -> str:
+        return ["vignelli", "essay"][choose.calls]
+
+    choose.calls = 0
+
+    def choosing(options: tuple[str, ...]) -> str:
+        value = choose(options)
+        choose.calls += 1
+        return value
+
+    monkeypatch.setattr(
+        generation,
+        "secrets",
+        SimpleNamespace(choice=choosing),
+        raising=False,
+    )
+
+    def runner(argv, **_kwargs):
+        calls.append(argv[-1])
+        payload = outputs.pop(0)
+        return successful_process(
+            argv,
+            payload,
+            echo_requested_layout=payload is not mismatched_payload,
+        )
+
+    outcome = run_generation(tmp_path, runner, retries=1)
+    persisted = json.loads(outcome.output_path.read_text(encoding="utf-8"))
+    editorial_prompts = [prompt for prompt in calls if "懂技术的损友" in prompt]
+
+    assert outcome.status == "generated"
+    assert choose.calls == 2
+    assert "article_layout:theme_mismatch" in editorial_prompts[1]
+    assert "article_layout:structure_mismatch" in editorial_prompts[1]
+    assert persisted["article_layout"].get("theme") == "vignelli"
+    assert persisted["article_layout"].get("structure") == "essay"
 
 
 def test_generate_retries_when_new_editorial_layout_uses_legacy_fallback(tmp_path):
@@ -288,9 +388,7 @@ def test_generate_retries_when_new_editorial_layout_uses_legacy_fallback(tmp_pat
 
     def runner(argv, **kwargs):
         payload = outputs.pop(0)
-        return subprocess.CompletedProcess(
-            argv, 0, stdout=json.dumps(payload, ensure_ascii=False), stderr=""
-        )
+        return successful_process(argv, payload)
 
     outcome = run_generation(tmp_path, runner, retries=1)
 
@@ -310,9 +408,7 @@ def test_generate_rejects_factual_draft_self_attestation_as_layout_evidence(tmp_
 
     def runner(argv, **kwargs):
         payload = outputs.pop(0)
-        return subprocess.CompletedProcess(
-            argv, 0, stdout=json.dumps(payload, ensure_ascii=False), stderr=""
-        )
+        return successful_process(argv, payload)
 
     outcome = run_generation(tmp_path, runner, retries=1)
 
@@ -331,12 +427,7 @@ def test_editorial_retry_reuses_valid_factual_pass(tmp_path):
 
     def runner(argv, **kwargs):
         calls.append(argv[-1])
-        return subprocess.CompletedProcess(
-            argv,
-            0,
-            stdout=json.dumps(outputs.pop(0), ensure_ascii=False),
-            stderr="",
-        )
+        return successful_process(argv, outputs.pop(0))
 
     outcome = run_generation(tmp_path, runner, retries=1)
 
@@ -360,12 +451,7 @@ def test_editorial_retry_rejects_untrusted_trial_evidence(tmp_path):
 
     def runner(argv, **kwargs):
         calls.append(argv[-1])
-        return subprocess.CompletedProcess(
-            argv,
-            0,
-            stdout=json.dumps(outputs.pop(0), ensure_ascii=False),
-            stderr="",
-        )
+        return successful_process(argv, outputs.pop(0))
 
     outcome = run_generation(tmp_path, runner, retries=1)
     persisted = json.loads(outcome.output_path.read_text(encoding="utf-8"))
@@ -373,7 +459,9 @@ def test_editorial_retry_rejects_untrusted_trial_evidence(tmp_path):
     assert outcome.status == "generated"
     assert outcome.attempts == 3
     assert "untrusted_trial_evidence" in calls[2]
-    assert persisted == enriched_payload()
+    assert without_article_layout(persisted) == without_article_layout(
+        enriched_payload()
+    )
 
 
 def test_editorial_retry_rejects_nonempty_visual_assets(tmp_path):
@@ -391,12 +479,7 @@ def test_editorial_retry_rejects_nonempty_visual_assets(tmp_path):
 
     def runner(argv, **kwargs):
         calls.append(argv[-1])
-        return subprocess.CompletedProcess(
-            argv,
-            0,
-            stdout=json.dumps(outputs.pop(0), ensure_ascii=False),
-            stderr="",
-        )
+        return successful_process(argv, outputs.pop(0))
 
     outcome = run_generation(tmp_path, runner, retries=1)
     persisted = json.loads(outcome.output_path.read_text(encoding="utf-8"))
@@ -404,7 +487,9 @@ def test_editorial_retry_rejects_nonempty_visual_assets(tmp_path):
     assert outcome.status == "generated"
     assert outcome.attempts == 3
     assert "nonempty_visual_assets" in calls[2]
-    assert persisted == enriched_payload()
+    assert without_article_layout(persisted) == without_article_layout(
+        enriched_payload()
+    )
 
 
 def test_invalid_factual_pass_is_not_retried(tmp_path):
@@ -511,16 +596,53 @@ def test_generate_rejects_resolved_output_directory_collision_before_io(
 def successful_process(
     argv: list[str],
     payload: dict | None = None,
+    *,
+    echo_requested_layout: bool = True,
 ) -> subprocess.CompletedProcess[str]:
+    output_payload = valid_payload() if payload is None else payload
+    if echo_requested_layout:
+        output_payload = echo_requested_article_layout(argv[-1], output_payload)
     return subprocess.CompletedProcess(
         argv,
         0,
         stdout=json.dumps(
-            valid_payload() if payload is None else payload,
+            output_payload,
             ensure_ascii=False,
         ),
         stderr="",
     )
+
+
+def echo_requested_article_layout(prompt: str, payload: dict) -> dict:
+    marker = "Input bundle JSON:\n"
+    if marker not in prompt:
+        return payload
+    try:
+        editorial_input = json.loads(prompt.split(marker, 1)[1].split(
+            "\n\nReturn exactly one complete JSON object", 1
+        )[0])
+    except (IndexError, json.JSONDecodeError):
+        return payload
+    requested_layout = editorial_input.get("requested_article_layout")
+    if not isinstance(requested_layout, dict):
+        return payload
+    if (
+        not isinstance(requested_layout.get("theme"), str)
+        or not isinstance(requested_layout.get("structure"), str)
+        or not isinstance(payload.get("article_layout"), dict)
+    ):
+        return payload
+    echoed_payload = deepcopy(payload)
+    echoed_payload["article_layout"].update(requested_layout)
+    return echoed_payload
+
+
+def without_article_layout(payload: dict) -> dict:
+    return {
+        field: value
+        for field, value in payload.items()
+        if field != "article_layout"
+    }
 
 
 def successful_two_pass_runner():
@@ -656,7 +778,9 @@ def test_generate_retries_invalid_output_with_machine_readable_failures(
     assert first_prompt.index(injection_boundary) < first_prompt.index(
         "Input bundle JSON:"
     )
-    assert json.loads(outcome.output_path.read_text(encoding="utf-8")) == valid_payload()
+    assert without_article_layout(
+        json.loads(outcome.output_path.read_text(encoding="utf-8"))
+    ) == without_article_layout(valid_payload())
 
 
 def test_generate_writes_bounded_failure_artifact_without_stdout_or_prompt(
@@ -765,7 +889,9 @@ def test_generate_replaces_existing_invalid_final(tmp_path: Path):
 
     assert outcome.status == "generated"
     assert calls == 2
-    assert json.loads(final_path.read_text(encoding="utf-8")) == valid_payload()
+    assert without_article_layout(
+        json.loads(final_path.read_text(encoding="utf-8"))
+    ) == without_article_layout(valid_payload())
 
 
 def test_generate_preserves_invalid_final_after_terminal_regeneration_failure(
@@ -952,11 +1078,19 @@ def test_default_runner_accepts_bounded_real_subprocess_output(
     (tmp_path / "chat").write_text(
         "\n".join(
             [
-                "import sys",
+                "import json, sys",
+                "prompt = sys.argv[-1]",
+                "if '只写事实稿' in prompt:",
+                f"    print({factual_json!r})",
+                "else:",
+                f"    payload = json.loads({editorial_json!r})",
                 (
-                    f"print({factual_json!r} if '只写事实稿' in sys.argv[-1] "
-                    f"else {editorial_json!r})"
+                    "    requested = json.loads(prompt.split('Input bundle JSON:\\n', 1)[1]"
+                    ".split('\\n\\nReturn exactly one complete JSON object', 1)[0])"
+                    "['requested_article_layout']"
                 ),
+                "    payload['article_layout'].update(requested)",
+                "    print(json.dumps(payload, ensure_ascii=False))",
             ]
         ),
         encoding="utf-8",
@@ -976,9 +1110,9 @@ def test_default_runner_accepts_bounded_real_subprocess_output(
 
     assert outcome.status == "generated"
     assert outcome.attempts == 2
-    assert json.loads(outcome.output_path.read_text(encoding="utf-8")) == (
-        enriched_payload()
-    )
+    assert without_article_layout(
+        json.loads(outcome.output_path.read_text(encoding="utf-8"))
+    ) == without_article_layout(enriched_payload())
     assert not [
         thread
         for thread in threading.enumerate()
@@ -2246,7 +2380,9 @@ def test_active_prompts_state_two_pass_contracts():
     assert 'visual_assets 必须严格返回 {"cover": null, "body": []}。' in editorial_prompt
     assert "返回一个八字段 JSON 对象，不要解释，不要 Markdown 围栏。" in editorial_prompt
     assert "## Rich article layout contract" in editorial_prompt
-    assert "article_layout.theme must be press" in editorial_prompt
+    assert "`requested_article_layout` fixes the only allowed theme/structure pair" in editorial_prompt
+    assert "article_layout.theme` and `article_layout.structure` must exactly echo" in editorial_prompt
+    assert "Do not choose either yourself." in editorial_prompt
     assert "no URL/path syntax, code, markup, or templates" in editorial_prompt
     assert "ordinary Chinese/English narrative characters" in editorial_prompt
     assert "source_note.url must exactly equal locked_facts.source_url" in editorial_prompt
@@ -2464,12 +2600,7 @@ def test_generate_repairs_unknown_fields_without_persisting_them(tmp_path: Path)
         if len(calls) == 1:
             return successful_process(argv, valid_core_payload())
         if len(calls) == 2:
-            return subprocess.CompletedProcess(
-                argv,
-                0,
-                stdout=json.dumps(invalid_payload, ensure_ascii=False),
-                stderr="",
-            )
+            return successful_process(argv, invalid_payload)
         return successful_process(argv)
 
     outcome = run_generation(tmp_path, runner)
@@ -2480,7 +2611,7 @@ def test_generate_repairs_unknown_fields_without_persisting_them(tmp_path: Path)
     assert "unknown_fields" in calls[2][-1]
     assert "unknown_platforms" in calls[2][-1]
     assert "must-not-be-persisted" not in calls[2][-1]
-    assert persisted == valid_payload()
+    assert without_article_layout(persisted) == without_article_layout(valid_payload())
 
 
 def test_unknown_secret_like_key_never_reaches_failures_or_retry_prompts(
@@ -2495,12 +2626,7 @@ def test_unknown_secret_like_key_never_reaches_failures_or_retry_prompts(
         calls.append(argv)
         if len(calls) == 1:
             return successful_process(argv, valid_core_payload())
-        return subprocess.CompletedProcess(
-            argv,
-            0,
-            stdout=json.dumps(invalid_payload, ensure_ascii=False),
-            stderr="",
-        )
+        return successful_process(argv, invalid_payload)
 
     outcome = run_generation(tmp_path, runner)
     artifact_text = outcome.output_path.read_text(encoding="utf-8")

@@ -120,17 +120,17 @@ Prompt version: editorial-v16
 
 ## Rich article layout contract
 
-Return `article_layout` as a reader-first `press` edition: `hero`, `lead`,
+`requested_article_layout` fixes the only allowed theme/structure pair. Return
+`article_layout` as a reader-first edition: `hero`, `lead`,
 `key_judgment`, one or more `section` blocks, `callout`, then `source_note`.
-Every text field must be plain-text, verbatim excerpts from the final body and locked source fields (`title`, source summary/description, or `facts`). Never use factual_draft as layout evidence. Supported types also include `workflow_compare` and `quote`.
+Every text field must be plain-text, verbatim excerpts from the final body and locked source fields (`title`, source summary/description, or `facts`). Never use factual_draft as layout evidence.
 
-- `article_layout.theme must be press`; reuse or faithfully compress checked
-  statements—never add a fact, claim, attribution, comparison, link, or asset.
+- `article_layout.theme` and `article_layout.structure` must exactly echo
+  `requested_article_layout.theme` and `requested_article_layout.structure`.
+  Do not choose either yourself.
 - `source_note.url must exactly equal locked_facts.source_url`; put no URL in
   another layout field.
 - Use only ordinary Chinese/English narrative characters and natural punctuation: no URL/path syntax, code, markup, or templates.
-- New drafts need a useful non-empty layout; only old articles may use the
-  empty `{"theme": "press", "blocks": []}` fallback.
 
 ## 输出要求
 
@@ -189,7 +189,8 @@ visual_assets 必须严格返回 {"cover": null, "body": []}。
   },
   "visual_assets": {"cover": null, "body": []},
   "article_layout": {
-    "theme": "press",
+    "theme": "<requested_article_layout.theme>",
+    "structure": "<requested_article_layout.structure>",
     "blocks": [
       {"type": "hero", "title": "Article title", "deck": "Reader payoff"},
       {"type": "lead", "text": "Conclusion first, grounded in the draft."},

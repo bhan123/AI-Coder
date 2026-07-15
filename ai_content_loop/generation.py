@@ -5,6 +5,7 @@ import json
 import locale
 import os
 import re
+import secrets
 import signal
 import subprocess
 import sys
@@ -19,6 +20,8 @@ from ai_content_loop.editorial.schema import (
     CORE_FIELDS,
     FINAL_FIELDS,
     PLATFORMS,
+    ARTICLE_STRUCTURES,
+    ARTICLE_THEMES,
     FinalSchemaError,
     coerce_reviewable_final_payload,
     normalize_final_payload,
@@ -168,6 +171,29 @@ class GenerationOutcome:
 
 class _HermesOutputTooLarge(RuntimeError):
     pass
+
+
+def choose_article_layout() -> dict[str, str]:
+    return {
+        "theme": secrets.choice(ARTICLE_THEMES),
+        "structure": secrets.choice(ARTICLE_STRUCTURES),
+    }
+
+
+def _article_layout_request_failures(
+    payload: object,
+    requested_layout: dict[str, str],
+) -> list[str]:
+    if not isinstance(payload, dict):
+        return []
+    article_layout = payload.get("article_layout")
+    if not isinstance(article_layout, dict):
+        return []
+    failures: list[str] = []
+    for field in ("theme", "structure"):
+        if article_layout.get(field) != requested_layout[field]:
+            failures.append(f"article_layout:{field}_mismatch")
+    return failures
 
 
 def _invalid_group_end(raw: str, start: int) -> int | None:
@@ -1341,10 +1367,12 @@ def generate_draft(
         sources = bundle.get("sources")
         if sources is None:
             sources = [{"url": source_url}]
+        requested_article_layout = choose_article_layout()
         editorial_input = {
             "locked_facts": bundle,
             "factual_draft": factual_payload,
             "sources": sources,
+            "requested_article_layout": requested_article_layout,
         }
         initial_prompt = _build_prompt(
             editorial_prompt_template,
@@ -1396,6 +1424,12 @@ def generate_draft(
                         require_rich_layout=True,
                         layout_fact_evidence=bundle,
                     )
+                    for failure in _article_layout_request_failures(
+                        payload,
+                        requested_article_layout,
+                    ):
+                        if failure not in hard:
+                            hard.append(failure)
                     # Inject style warnings into editorial_profile so the review
                     # desk can display them without blocking the article.
                     if "editorial_profile" in payload and warnings:
