@@ -12,6 +12,7 @@ from ai_content_loop.generation import validate_generation_payload
 from ai_content_loop.visuals.brief import (
     LIMITS,
     VisualBriefError,
+    coerce_visual_brief,
     normalize_visual_brief,
 )
 from ai_content_loop.visuals.templates import (
@@ -570,6 +571,16 @@ def test_generation_reports_precise_bounded_visual_brief_failure():
 
     assert hard == []  # visual_brief:cover_line is now a warning
     assert unsafe_value not in repr(hard)
+
+
+def test_coerce_visual_brief_truncates_safe_overlong_panel_reaction():
+    value = valid_brief()
+    value["body_panels"][1]["reaction"] = "这是一段超过十个字的安全反应文案"
+
+    coerced = coerce_visual_brief(value)
+
+    assert coerced is not None
+    assert coerced["body_panels"][1]["reaction"] == "这是一段超过十个字的"
 
 
 def test_generation_keeps_precise_visual_failure_with_unrelated_failures():

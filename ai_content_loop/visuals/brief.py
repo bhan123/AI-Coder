@@ -592,6 +592,30 @@ def coerce_visual_brief(value: object) -> dict[str, object] | None:
 
     candidate = deepcopy(value)
 
+    def truncate_safe_string(container: object, field: str) -> None:
+        if not isinstance(container, dict) or field not in LIMITS:
+            return
+        current = container.get(field)
+        try:
+            _normalize_string(current, path=field, field=field)
+        except VisualBriefError as exc:
+            if exc.code == "too_long" and isinstance(current, str):
+                container[field] = current[: LIMITS[field]].rstrip()
+
+    def truncate_panel_copy(container: object) -> None:
+        if not isinstance(container, dict):
+            return
+        panels = container.get("body_panels")
+        if not isinstance(panels, list):
+            return
+        for panel in panels:
+            truncate_safe_string(panel, "label")
+            truncate_safe_string(panel, "reaction")
+
+    for field in ("template_hint", "cover_line", "cover_subline"):
+        truncate_safe_string(candidate, field)
+    truncate_panel_copy(candidate)
+
     def trim_two_panels(container: object) -> bool:
         if not isinstance(container, dict):
             return False
@@ -608,6 +632,9 @@ def coerce_visual_brief(value: object) -> dict[str, object] | None:
     if not trim_two_panels(candidate):
         return None
     for alternative in candidate["alternatives"]:
+        for field in ("cover_line", "cover_subline"):
+            truncate_safe_string(alternative, field)
+        truncate_panel_copy(alternative)
         if not trim_two_panels(alternative):
             return None
 
