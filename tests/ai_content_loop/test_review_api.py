@@ -942,6 +942,21 @@ def test_review_page_exposes_manual_wechat_draft_control(review_app):
     assert "state.dirty" in script
 
 
+def test_review_page_refreshes_article_list_after_returning_to_the_tab(review_app):
+    script = (
+        Path(__file__).parents[2]
+        / "ai_content_loop"
+        / "review"
+        / "static"
+        / "review.js"
+    ).read_text(encoding="utf-8")
+
+    assert 'window.addEventListener("focus", refreshArticlesOnFocus)' in script
+    assert "if (state.dirty) return;" in script
+    assert "await loadArticles(statusFilter.value);" in script
+    assert "发现新文章，请在左侧打开查看" in script
+
+
 def test_rich_preview_stays_inside_the_single_scrollable_workspace(
     review_app,
 ):

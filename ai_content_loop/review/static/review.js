@@ -13,6 +13,7 @@ const state = {
   webEditionRequestActive: false,
   wechatDraftRequestActive: false,
   wechatDraftStatus: "not_configured",
+  articleListRefreshActive: false,
 };
 
 const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
@@ -303,6 +304,28 @@ async function loadArticles(status = "") {
   renderArticleList();
   if (!state.articleId && state.articles.length > 0) {
     await openArticle(state.articles[0].article_id);
+  }
+}
+
+async function refreshArticlesOnFocus() {
+  if (state.dirty) return;
+  if (state.articleListRefreshActive || state.articles.length === 0) return;
+  state.articleListRefreshActive = true;
+  const knownArticleIds = new Set(
+    state.articles.map((article) => article.article_id),
+  );
+  try {
+    await loadArticles(statusFilter.value);
+    const newArticle = state.articles.find(
+      (article) => !knownArticleIds.has(article.article_id),
+    );
+    if (newArticle) {
+      notify(`发现新文章，请在左侧打开查看：${newArticle.title}`);
+    }
+  } catch (error) {
+    notify(error.message, "error");
+  } finally {
+    state.articleListRefreshActive = false;
   }
 }
 
@@ -739,5 +762,6 @@ window.addEventListener("beforeunload", (event) => {
   event.preventDefault();
   event.returnValue = "";
 });
+window.addEventListener("focus", refreshArticlesOnFocus);
 
 loadArticles().catch((error) => notify(error.message, "error"));
