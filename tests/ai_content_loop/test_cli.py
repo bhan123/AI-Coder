@@ -695,6 +695,7 @@ def test_generate_drafts_isolates_invalid_bundle_and_continues(
         "visual_assets": {"cover": None, "body": []},
         "article_layout": {
             "theme": "press",
+            "structure": "briefing",
             "blocks": [
                 {
                     "type": "hero",
@@ -770,6 +771,11 @@ def test_generate_drafts_isolates_invalid_bundle_and_continues(
         )
 
     monkeypatch.setattr(cli, "generate_draft", run_real_generation)
+    monkeypatch.setattr(
+        generation,
+        "choose_article_layout",
+        lambda: {"theme": "press", "structure": "briefing"},
+    )
 
     run_generate_drafts(config_path)
 
@@ -1068,7 +1074,9 @@ def test_generate_assets_uses_safe_final_name_not_database_bundle_path(
                     "template_name": None,
                     "copy_index": 0,
                     "expected_version": cli.payload_version(
-                        visual_payload(dedupe_key)
+                        cli.coerce_reviewable_final_payload(
+                            visual_payload(dedupe_key)
+                        )
                     ),
                 },
         )
