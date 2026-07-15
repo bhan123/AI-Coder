@@ -84,7 +84,7 @@ def visual_brief():
 
 
 def make_payload():
-    body = f"{'正文内容足够长。' * 8}\n\n来源：{SOURCE_URL}"
+    body = f"{'正文内容足够长。' * 90}\n\n来源：{SOURCE_URL}"
     return {
         "dedupe_key": DEDUPE_KEY,
         "column": "开源项目淘金",

@@ -26,7 +26,8 @@ def test_templates_create_brief_and_platform_skeletons():
     assert choose_column(pack) == "开源项目淘金"
     assert "普通读者" in brief
     assert set(skeletons) == {"wechat", "xiaohongshu", "toutiao", "zhihu"}
-    assert "适合 1200–2200 字" in skeletons["wechat"]
+    assert "不少于 600 字，不设上限" in skeletons["wechat"]
+    assert all("不设上限" in skeleton for skeleton in skeletons.values())
     assert "只讲两个证据最充分的场景" in skeletons["wechat"]
     assert "信息覆盖清单，不是固定结构" in brief
     assert "顺序自定" in skeletons["wechat"]

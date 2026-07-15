@@ -640,15 +640,14 @@ def test_generate_drafts_isolates_invalid_bundle_and_continues(
             ("2026-07-01T00:00:00Z", "github:owner/good"),
         )
     real_generate_draft = generation.generate_draft
+    good_body = f"{good_summary} " * 12 + f"Source: {good_url}"
     good_payload = {
         "dedupe_key": "github:owner/good",
         "column": "AI discoveries",
         "master_title": good_title,
-        "master_markdown": f"{good_summary} Source: {good_url}",
+        "master_markdown": good_body,
         "platform_markdown": {
-            platform: (
-                f"{good_summary} Source: {good_url}"
-            )
+            platform: good_body
             for platform in generation.PLATFORMS
         },
         "editorial_profile": {
@@ -734,7 +733,7 @@ def test_generate_drafts_isolates_invalid_bundle_and_continues(
         prompt = argv[-1]
         model_prompts.append(prompt)
 
-        if "Prompt version: factual-v8" in prompt:
+        if "Prompt version: factual-v9" in prompt:
             if len(model_prompts) != 1:
                 raise AssertionError(
                     "unexpected factual prompt call "
@@ -780,7 +779,7 @@ def test_generate_drafts_isolates_invalid_bundle_and_continues(
     run_generate_drafts(config_path)
 
     assert len(model_prompts) == 2
-    assert "Prompt version: factual-v8" in model_prompts[0]
+    assert "Prompt version: factual-v9" in model_prompts[0]
     assert "Prompt version: editorial-v16" in model_prompts[1]
 
     rows = {

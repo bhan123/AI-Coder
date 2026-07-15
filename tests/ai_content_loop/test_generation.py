@@ -33,6 +33,10 @@ EDITORIAL_PROMPT_PATH = PROMPTS_DIR / "editorial_voice.md"
 SCORING_PROMPT_PATH = PROMPTS_DIR / "scoring.md"
 
 
+def body_at_least_600_chars(text: str) -> str:
+    return (text + "\n\n") * (600 // (len(text) + 2) + 1)
+
+
 def pid_exists(pid: int) -> bool:
     if sys.platform == "win32":
         synchronize = 0x00100000
@@ -1993,9 +1997,10 @@ def test_generate_repairs_overlong_visual_brief_before_review(tmp_path: Path):
 
 def test_generation_treats_quality_failures_as_review_warnings():
     payload = enriched_payload()
-    payload["master_markdown"] = "这篇文章缺少来源链接，而且保证赚钱。"
+    unsafe_body = body_at_least_600_chars("这篇文章缺少来源链接，而且保证赚钱。")
+    payload["master_markdown"] = unsafe_body
     payload["platform_markdown"] = {
-        platform: "这篇文章缺少来源链接，而且保证赚钱。"
+        platform: unsafe_body
         for platform in PLATFORMS
     }
 
@@ -2292,14 +2297,15 @@ def test_validator_rejects_layout_fact_present_only_in_unverified_body():
     assert injected_fact not in " ".join(hard)
 
 
-def test_validator_reports_platform_target_lengths_as_review_warnings():
+def _platform_body_with_length(length):
+    suffix = f"\n\n第二段保留必要信息。\n\n来源：{SOURCE_URL}"
+    return "文" * (length - len(suffix)) + suffix
+
+
+def test_validator_requires_every_platform_body_to_have_at_least_600_chars():
     payload = enriched_payload()
-    short_body = (
-        "这是一段超过基础格式门槛、但明显没有达到平台建议长度的文章正文。" * 8
-        + f"\n\n来源：{SOURCE_URL}"
-    )
     payload["platform_markdown"] = {
-        platform: short_body
+        platform: _platform_body_with_length(599)
         for platform in PLATFORMS
     }
 
@@ -2309,13 +2315,31 @@ def test_validator_reports_platform_target_lengths_as_review_warnings():
         source_url=SOURCE_URL,
     )
 
-    assert hard == []
-    assert {
+    assert set(hard) == {
         "wechat:below_target_length",
         "xiaohongshu:below_target_length",
         "toutiao:below_target_length",
         "zhihu:below_target_length",
-    }.issubset(warnings)
+    }
+    assert warnings == []
+
+
+def test_validator_accepts_600_chars_and_has_no_maximum_body_length():
+    for length in (600, 12_000):
+        payload = enriched_payload()
+        payload["platform_markdown"] = {
+            platform: _platform_body_with_length(length)
+            for platform in PLATFORMS
+        }
+
+        hard, warnings = validate_generation_payload(
+            payload,
+            dedupe_key=DEDUPE_KEY,
+            source_url=SOURCE_URL,
+        )
+
+        assert not any("length" in failure for failure in hard)
+        assert not any("length" in warning for warning in warnings)
 
 
 def test_validator_reports_editorial_placeholders_as_review_warnings():
@@ -2341,7 +2365,7 @@ def test_active_prompts_state_two_pass_contracts():
     combined_prompts = factual_prompt + editorial_prompt + scoring_prompt
 
     assert "# Hermes 事实稿" in factual_prompt
-    assert "Prompt version: factual-v8" in factual_prompt
+    assert "Prompt version: factual-v9" in factual_prompt
     assert "只写事实稿，不添加第一人称体验、段子、收入承诺或视觉素材。" in factual_prompt
     assert "所有数字、功能、限制和链接必须来自输入事实包，不得捏造。" in factual_prompt
     assert "事实锚点" in factual_prompt
@@ -2350,6 +2374,8 @@ def test_active_prompts_state_two_pass_contracts():
     assert "同一来源每篇自然归因 2–4 次即可" in factual_prompt
     assert "信息覆盖清单，不是固定结构" in factual_prompt
     assert "不要为了凑字数或凑两个场景重复信息" in factual_prompt
+    assert "不少于 600 字，不设上限" in factual_prompt
+    assert "1200-2200" not in factual_prompt
     assert "# Hermes 选题评分提示词" in scoring_prompt
     assert "Prompt version: scoring-v6" in scoring_prompt
     assert "证据可锚定性" in scoring_prompt
@@ -2669,9 +2695,11 @@ def test_validator_rejects_wrong_key_and_missing_platform():
 
 def test_validator_requires_source_in_master_and_every_platform_body():
     payload = valid_payload()
-    payload["master_markdown"] = "这是一份没有提供来源链接但长度足够的完整内容草稿。"
+    payload["master_markdown"] = body_at_least_600_chars(
+        "这是一份没有提供来源链接但长度足够的完整内容草稿。"
+    )
     for platform in PLATFORMS:
-        payload["platform_markdown"][platform] = (
+        payload["platform_markdown"][platform] = body_at_least_600_chars(
             f"这是为 {platform} 准备但没有提供来源链接的完整内容草稿。"
         )
 
@@ -2752,7 +2780,7 @@ def test_validator_reports_invalid_scalar_types_without_crashing():
 def test_validator_checks_every_body_when_master_title_has_invalid_type():
     payload = valid_payload()
     payload["master_title"] = None
-    unsafe_body = (
+    unsafe_body = body_at_least_600_chars(
         "这是一份长度足够但缺少来源链接的正文，并且保证赚钱，还提供投资建议。"
     )
     payload["master_markdown"] = unsafe_body

@@ -57,7 +57,7 @@ def test_minimal_visual_brief_makes_null_visuals_renderable():
 
 
 def _payload(*, rendered: bool) -> dict[str, object]:
-    body = f"{'正文内容足够长。' * 8}\n\n来源：{SOURCE_URL}"
+    body = f"{'正文内容足够长。' * 90}\n\n来源：{SOURCE_URL}"
     value: dict[str, object] = {
         "dedupe_key": DEDUPE_KEY,
         "column": "开源项目淘金",

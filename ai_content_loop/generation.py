@@ -63,16 +63,10 @@ _STYLE_WARNINGS = {
     "overpromise",
     "missing_source_link",
     "high_risk_advice",
-    "below_target_length",
     "editorial_placeholder",
 }
 
-_PLATFORM_MIN_CHARS = {
-    "wechat": 1000,
-    "xiaohongshu": 450,
-    "toutiao": 1000,
-    "zhihu": 1200,
-}
+_PLATFORM_MIN_CHARS = dict.fromkeys(PLATFORMS, 600)
 _EDITORIAL_PLACEHOLDERS = ("正文配图", "封面配图", "图片占位")
 
 _NEUTRAL_TITLE = "内容质量检查使用的中性标题"

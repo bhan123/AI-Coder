@@ -50,7 +50,7 @@ def valid_brief():
 
 
 def valid_final_payload():
-    body = f"这是一份包含充分事实依据的完整内容草稿。来源：{SOURCE_URL}"
+    body = f"{'这是一份包含充分事实依据的完整内容草稿。' * 35}来源：{SOURCE_URL}"
     return {
         "dedupe_key": DEDUPE_KEY,
         "column": "开源项目淘金",
