@@ -2027,6 +2027,22 @@ def test_validator_rejects_unsafe_article_layout_without_echoing_model_text():
     assert "steal-model-output" not in " ".join(hard)
 
 
+def test_validator_accepts_safe_chinese_editorial_punctuation_in_layout():
+    payload = enriched_payload()
+    payload["article_layout"]["blocks"][1]["text"] = (
+        "把「物理规律」写进 AI+工程建模，用于同时计算杆/索的形与力。"
+    )
+
+    hard, warnings = validate_generation_payload(
+        payload,
+        dedupe_key=DEDUPE_KEY,
+        source_url=SOURCE_URL,
+    )
+
+    assert hard == []
+    assert warnings == []
+
+
 def test_validator_rejects_layout_source_url_not_present_in_locked_facts():
     payload = enriched_payload()
     payload["article_layout"]["blocks"][-1]["url"] = (

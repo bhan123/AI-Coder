@@ -111,7 +111,7 @@ _ARTICLE_LAYOUT_COMMAND = re.compile(
 )
 _ARTICLE_LAYOUT_PLAIN_TEXT = re.compile(
     r"^[A-Za-z0-9\u3400-\u4DBF\u4E00-\u9FFF\s"
-    r"，。！？；：、（）“”‘’《》〈〉—…·,.!?;:()'\"-]+$"
+    r"，。！？；：、（）“”‘’「」《》〈〉—…·,.!?;:()'\"+/-]+$"
 )
 _ARTICLE_LAYOUT_PROTOCOL = re.compile(
     r"(?i)\b[a-z][a-z0-9+.-]{1,31}:(?://|[^\s])"

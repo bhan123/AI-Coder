@@ -59,6 +59,14 @@ _APPROVAL_FAILURE_LABELS = {
     "missing_cover_file": "找不到封面图片文件",
     "missing_body_file": "找不到正文图片文件",
     "missing_source_metadata": "缺少来源信息",
+    "article_layout:unsafe_plain_text": "富阅读布局包含不支持的文本字符",
+}
+_VISUAL_APPROVAL_FAILURES = {
+    "missing_cover_asset",
+    "missing_body_asset",
+    "missing_body_asset_marker",
+    "missing_cover_file",
+    "missing_body_file",
 }
 
 
@@ -437,8 +445,24 @@ class ArticleRepository:
                             _APPROVAL_FAILURE_LABELS.get(failure, failure)
                             for failure in failures
                         ]
+                        has_visual_failure = any(
+                            failure in _VISUAL_APPROVAL_FAILURES
+                            for failure in failures
+                        )
+                        has_other_failure = any(
+                            failure not in _VISUAL_APPROVAL_FAILURES
+                            for failure in failures
+                        )
+                        if has_visual_failure and has_other_failure:
+                            guidance = (
+                                "请先点击“生成图片”；其余问题请退回并重新生成文章。"
+                            )
+                        elif has_visual_failure:
+                            guidance = "请先点击“生成图片”。"
+                        else:
+                            guidance = "请退回并重新生成文章。"
                         raise InvalidArticle(
-                            "无法通过：" + "、".join(labels) + "。请先点击“生成图片”。"
+                            "无法通过：" + "、".join(labels) + "。" + guidance
                         )
                 self.store.set_review_status(payload["dedupe_key"], status)
 

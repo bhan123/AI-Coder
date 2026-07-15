@@ -461,6 +461,26 @@ def test_approval_error_names_the_unresolved_blockers(repository):
         repository.set_status(article_id, "approved")
 
 
+def test_non_visual_approval_error_does_not_tell_reviewer_to_generate_images(
+    repository,
+    monkeypatch,
+):
+    article_id = repository.list_articles()[0]["article_id"]
+    monkeypatch.setattr(
+        repository,
+        "_approval_failures",
+        lambda _article_id, _payload: ["article_layout:unsafe_plain_text"],
+    )
+
+    with pytest.raises(InvalidArticle) as caught:
+        repository.set_status(article_id, "approved")
+
+    message = str(caught.value)
+    assert "富阅读布局包含不支持的文本字符" in message
+    assert "退回并重新生成文章" in message
+    assert "生成图片" not in message
+
+
 def test_history_identifier_cannot_escape_history_directory(repository):
     article_id = repository.list_articles()[0]["article_id"]
     loaded = repository.load_article(article_id)
