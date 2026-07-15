@@ -65,9 +65,15 @@ AI_CONTENT_CONFIG=/opt/ai-content-loop/config.toml
 AI_CONTENT_REVIEW_USERNAME=owner
 AI_CONTENT_REVIEW_PASSWORD_HASH=PASTE_THE_GENERATED_HASH_HERE
 AI_CONTENT_REVIEW_SECRET_KEY=PASTE_THE_GENERATED_RANDOM_KEY_HERE
+WECHAT_APP_ID=PASTE_THE_OFFICIAL_ACCOUNT_APP_ID_HERE
+WECHAT_APP_SECRET=PASTE_THE_OFFICIAL_ACCOUNT_APP_SECRET_HERE
+# 可选，默认 https://api.weixin.qq.com
+# WECHAT_API_BASE_URL=https://api.weixin.qq.com
 ```
 
-不要把明文密码或 `review.env` 放进 Git。
+不要把明文密码、公众号 AppSecret 或 `review.env` 放进 Git。公众号凭据
+缺失时按钮会显示“公众号未配置”，服务不会发起任何外部请求。该功能只调用
+素材上传与 `draft/add` 创建草稿，严禁接入自动发布或群发接口。
 
 ## 3. 安装并启动 systemd 服务
 
@@ -155,6 +161,8 @@ tailscale funnel status
 6. 能恢复旧版本。
 7. 审核状态刷新后仍然保留。
 8. 手机窄屏下能切换编辑和预览。
+9. 已通过且未修改的文章可人工点击“同步公众号草稿”，公众号后台出现草稿；
+   页面不会自动同步，也不会自动发布或群发。
 
 ## 7. 日志
 

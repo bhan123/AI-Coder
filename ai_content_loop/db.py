@@ -71,6 +71,18 @@ CREATE TABLE IF NOT EXISTS review_web_editions (
     FOREIGN KEY(dedupe_key) REFERENCES publish_queue(dedupe_key)
 );
 
+CREATE TABLE IF NOT EXISTS wechat_draft_syncs (
+    dedupe_key TEXT NOT NULL,
+    content_version TEXT NOT NULL,
+    media_id TEXT,
+    status TEXT NOT NULL,
+    error TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (dedupe_key, content_version),
+    FOREIGN KEY(dedupe_key) REFERENCES publish_queue(dedupe_key)
+);
+
 CREATE TABLE IF NOT EXISTS platform_metrics (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     dedupe_key TEXT NOT NULL,
@@ -101,17 +113,12 @@ class ContentStore:
         with self.connect() as conn:
             conn.executescript(SCHEMA)
             columns = {
-                row["name"]
-                for row in conn.execute("PRAGMA table_info(publish_queue)")
+                row["name"] for row in conn.execute("PRAGMA table_info(publish_queue)")
             }
             if "claimed_at" not in columns:
-                conn.execute(
-                    "ALTER TABLE publish_queue ADD COLUMN claimed_at TEXT"
-                )
+                conn.execute("ALTER TABLE publish_queue ADD COLUMN claimed_at TEXT")
             if "claim_token" not in columns:
-                conn.execute(
-                    "ALTER TABLE publish_queue ADD COLUMN claim_token TEXT"
-                )
+                conn.execute("ALTER TABLE publish_queue ADD COLUMN claim_token TEXT")
             score_cols = {
                 row["name"]
                 for row in conn.execute("PRAGMA table_info(candidate_scores)")
@@ -329,9 +336,7 @@ class ContentStore:
                 (dedupe_key, title, column_name, status, bundle_path),
             )
 
-    def list_publish_queue(
-        self, status: str | None = None
-    ) -> list[dict[str, Any]]:
+    def list_publish_queue(self, status: str | None = None) -> list[dict[str, Any]]:
         with self.connect() as conn:
             rows = conn.execute(
                 """
@@ -408,6 +413,50 @@ class ContentStore:
             ).fetchone()
         return None if row is None else dict(row)
 
+    def record_wechat_draft_sync(
+        self,
+        dedupe_key: str,
+        content_version: str,
+        *,
+        status: str,
+        media_id: str | None,
+        error: str | None,
+    ) -> None:
+        if status not in {"success", "error"}:
+            raise ValueError("unsupported WeChat draft sync status")
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO wechat_draft_syncs (
+                    dedupe_key, content_version, media_id, status, error
+                ) VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(dedupe_key, content_version) DO UPDATE SET
+                    media_id=excluded.media_id,
+                    status=excluded.status,
+                    error=excluded.error,
+                    updated_at=CURRENT_TIMESTAMP
+                WHERE wechat_draft_syncs.status != 'success'
+                """,
+                (dedupe_key, content_version, media_id, status, error),
+            )
+
+    def get_wechat_draft_sync(
+        self,
+        dedupe_key: str,
+        content_version: str,
+    ) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT dedupe_key, content_version, media_id, status, error,
+                       created_at, updated_at
+                FROM wechat_draft_syncs
+                WHERE dedupe_key = ? AND content_version = ?
+                """,
+                (dedupe_key, content_version),
+            ).fetchone()
+        return None if row is None else dict(row)
+
     def invalidate_web_edition_after_article_change(
         self,
         dedupe_key: str,
@@ -430,9 +479,7 @@ class ContentStore:
                 (dedupe_key,),
             )
 
-    def claim_publish_queue_item(
-        self, dedupe_key: str, claim_token: str
-    ) -> bool:
+    def claim_publish_queue_item(self, dedupe_key: str, claim_token: str) -> bool:
         if not isinstance(claim_token, str) or not claim_token.strip():
             raise ValueError("claim_token must be a non-empty string")
         with self.connect() as conn:
@@ -483,9 +530,7 @@ class ContentStore:
             )
         return cursor.rowcount == 1
 
-    def requeue_stale_generation_claims(
-        self, lease_seconds: int = 3600
-    ) -> int:
+    def requeue_stale_generation_claims(self, lease_seconds: int = 3600) -> int:
         if lease_seconds <= 0:
             raise ValueError("lease_seconds must be greater than 0")
         with self.connect() as conn:

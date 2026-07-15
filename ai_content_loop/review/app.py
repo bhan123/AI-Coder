@@ -38,6 +38,7 @@ from ai_content_loop.visuals.assets import AssetPublicationError
 from ai_content_loop.visuals.pipeline import generate_visual_assets
 from ai_content_loop.visuals.renderer import VisualRenderError
 from ai_content_loop.visuals.templates import TEMPLATES
+from ai_content_loop.wechat.client import WechatApiError, WechatClient
 
 
 REVIEW_STATUSES = {
@@ -105,15 +106,18 @@ def create_app(test_config: dict | None = None) -> Flask:
         app.config.update(
             SECRET_KEY=os.environ.get("AI_CONTENT_REVIEW_SECRET_KEY"),
             REVIEW_USERNAME=os.environ.get("AI_CONTENT_REVIEW_USERNAME"),
-            REVIEW_PASSWORD_HASH=os.environ.get(
-                "AI_CONTENT_REVIEW_PASSWORD_HASH"
-            ),
+            REVIEW_PASSWORD_HASH=os.environ.get("AI_CONTENT_REVIEW_PASSWORD_HASH"),
             DATABASE_PATH=content_config.database_path,
             FINAL_DIR=content_config.output_dir / "final",
             HISTORY_DIR=content_config.output_dir / "history",
             OUTPUT_DIR=content_config.output_dir,
             ASSET_DIR=content_config.output_dir / "assets",
             VISUAL_FONT_PATH=content_config.visual_font_path,
+            WECHAT_APP_ID=os.environ.get("WECHAT_APP_ID"),
+            WECHAT_APP_SECRET=os.environ.get("WECHAT_APP_SECRET"),
+            WECHAT_API_BASE_URL=os.environ.get(
+                "WECHAT_API_BASE_URL", "https://api.weixin.qq.com"
+            ),
         )
     else:
         app.config.update(test_config)
@@ -148,6 +152,20 @@ def create_app(test_config: dict | None = None) -> Flask:
         assets_dir=Path(app.config["ASSET_DIR"]),
     )
     app.extensions["article_repository"] = repository
+    wechat_client = app.config.get("WECHAT_CLIENT")
+    if (
+        wechat_client is None
+        and app.config.get("WECHAT_APP_ID")
+        and app.config.get("WECHAT_APP_SECRET")
+    ):
+        wechat_client = WechatClient(
+            str(app.config["WECHAT_APP_ID"]),
+            str(app.config["WECHAT_APP_SECRET"]),
+            api_base_url=str(
+                app.config.get("WECHAT_API_BASE_URL") or "https://api.weixin.qq.com"
+            ),
+        )
+    app.extensions["wechat_client"] = wechat_client
     app.register_blueprint(auth)
 
     @app.errorhandler(ArticleNotFound)
@@ -161,6 +179,17 @@ def create_app(test_config: dict | None = None) -> Flask:
     @app.errorhandler(ArticleConflict)
     def article_conflict(_error):
         return jsonify(error="version_conflict"), 409
+
+    @app.errorhandler(WechatApiError)
+    def wechat_api_error(error):
+        return (
+            jsonify(
+                error="wechat_api_error",
+                detail=str(error),
+                status="error",
+            ),
+            502,
+        )
 
     @app.get("/")
     @login_required
@@ -205,10 +234,7 @@ def create_app(test_config: dict | None = None) -> Flask:
     def rich_preview():
         require_csrf()
         value = request.get_json(silent=True)
-        if (
-            not isinstance(value, dict)
-            or not isinstance(value.get("article_id"), str)
-        ):
+        if not isinstance(value, dict) or not isinstance(value.get("article_id"), str):
             return jsonify(error="invalid_request"), 400
         loaded = repository.load_article(value["article_id"])
         payload = loaded["payload"]
@@ -233,11 +259,21 @@ def create_app(test_config: dict | None = None) -> Flask:
     @app.get("/api/articles/<article_id>")
     @login_required
     def get_article(article_id: str):
-        return jsonify(repository.load_article(article_id))
+        value = repository.load_article(article_id)
+        current = repository.wechat_draft_status(article_id)
+        if app.extensions.get("wechat_client") is None:
+            value["wechat_draft"] = {"status": "not_configured"}
+        elif current is None:
+            value["wechat_draft"] = {"status": "not_synced"}
+        else:
+            value["wechat_draft"] = {
+                "status": current["status"],
+                "media_id": current["media_id"],
+                "error": current["error"],
+            }
+        return jsonify(value)
 
-    @app.get(
-        "/api/articles/<article_id>/assets/<asset_id>/<revision>"
-    )
+    @app.get("/api/articles/<article_id>/assets/<asset_id>/<revision>")
     @login_required
     def article_asset(article_id: str, asset_id: str, revision: str):
         return send_file(
@@ -251,10 +287,7 @@ def create_app(test_config: dict | None = None) -> Flask:
     def save_article(article_id: str):
         require_csrf()
         value = request.get_json(silent=True)
-        if (
-            not isinstance(value, dict)
-            or not isinstance(value.get("version"), str)
-        ):
+        if not isinstance(value, dict) or not isinstance(value.get("version"), str):
             return jsonify(error="invalid_request"), 400
         return jsonify(
             repository.save_article(
@@ -275,10 +308,7 @@ def create_app(test_config: dict | None = None) -> Flask:
     def restore_article(article_id: str, history_id: str):
         require_csrf()
         value = request.get_json(silent=True)
-        if (
-            not isinstance(value, dict)
-            or not isinstance(value.get("version"), str)
-        ):
+        if not isinstance(value, dict) or not isinstance(value.get("version"), str):
             return jsonify(error="invalid_request"), 400
         return jsonify(
             repository.restore_article(
@@ -366,6 +396,27 @@ def create_app(test_config: dict | None = None) -> Flask:
             ),
         )
 
+    @app.post("/api/articles/<article_id>/wechat/draft")
+    @login_required
+    def sync_wechat_draft(article_id: str):
+        require_csrf()
+        value = request.get_json(silent=True)
+        if not isinstance(value, dict) or not isinstance(value.get("version"), str):
+            return jsonify(error="invalid_request"), 400
+        client = app.extensions.get("wechat_client")
+        if client is None:
+            return (
+                jsonify(
+                    error="wechat_not_configured",
+                    status="not_configured",
+                    detail="公众号服务尚未配置",
+                ),
+                503,
+            )
+        return jsonify(
+            repository.sync_wechat_draft(article_id, value["version"], client)
+        )
+
     @app.get("/api/articles/<article_id>/web-edition")
     @login_required
     def web_edition(article_id: str):
@@ -382,9 +433,7 @@ def create_app(test_config: dict | None = None) -> Flask:
     @app.after_request
     def security_headers(response):
         response.headers["Content-Security-Policy"] = (
-            WEB_EDITION_CSP
-            if getattr(g, "web_edition_response", False)
-            else REVIEW_CSP
+            WEB_EDITION_CSP if getattr(g, "web_edition_response", False) else REVIEW_CSP
         )
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["X-Content-Type-Options"] = "nosniff"

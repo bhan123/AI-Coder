@@ -32,6 +32,8 @@ from ai_content_loop.review.web_edition import (
     atomic_write_web_edition,
     render_web_edition,
 )
+from ai_content_loop.wechat.client import WechatApiError, WechatClient
+from ai_content_loop.wechat.rendering import render_wechat_article
 
 
 class ArticleNotFound(KeyError):
@@ -115,10 +117,7 @@ def _validate_payload(
     except FinalSchemaError as error:
         raise InvalidArticle(str(error)) from error
 
-    if (
-        expected_dedupe_key is not None
-        and payload["dedupe_key"] != expected_dedupe_key
-    ):
+    if expected_dedupe_key is not None and payload["dedupe_key"] != expected_dedupe_key:
         raise InvalidArticle("dedupe_key cannot be changed")
     return payload
 
@@ -145,9 +144,7 @@ class ArticleRepository:
         self.history_dir = Path(history_dir)
         self.output_dir = self.final_dir.parent
         self.assets_dir = (
-            Path(assets_dir)
-            if assets_dir is not None
-            else self.output_dir / "assets"
+            Path(assets_dir) if assets_dir is not None else self.output_dir / "assets"
         )
         self._write_lock = threading.RLock()
 
@@ -188,9 +185,7 @@ class ArticleRepository:
         if source_url is None:
             add_warning("missing_source_metadata")
         else:
-            is_legacy = (
-                payload["editorial_profile"] == legacy_editorial_profile()
-            )
+            is_legacy = payload["editorial_profile"] == legacy_editorial_profile()
             hard, style_warnings = validate_generation_payload(
                 payload,
                 dedupe_key=payload["dedupe_key"],
@@ -229,19 +224,13 @@ class ArticleRepository:
                     "title": payload["master_title"],
                     "column": payload["column"],
                     "status": (
-                        queue_row["status"]
-                        if queue_row is not None
-                        else "untracked"
+                        queue_row["status"] if queue_row is not None else "untracked"
                     ),
                     "created_at": (
-                        queue_row["created_at"]
-                        if queue_row is not None
-                        else None
+                        queue_row["created_at"] if queue_row is not None else None
                     ),
                     "generated_date": _date_part(
-                        queue_row["created_at"]
-                        if queue_row is not None
-                        else None
+                        queue_row["created_at"] if queue_row is not None else None
                     ),
                 }
             )
@@ -272,9 +261,7 @@ class ArticleRepository:
             references.append(cover)
         body = assets["body"]
         if isinstance(body, list):
-            references.extend(
-                item for item in body if isinstance(item, dict)
-            )
+            references.extend(item for item in body if isinstance(item, dict))
         return references
 
     def asset_references(
@@ -305,9 +292,7 @@ class ArticleRepository:
             raise ArticleNotFound(asset_id)
         try:
             assets_root = self.assets_dir.resolve(strict=True)
-            candidate = (self.output_dir / str(match["path"])).resolve(
-                strict=True
-            )
+            candidate = (self.output_dir / str(match["path"])).resolve(strict=True)
             candidate.relative_to(assets_root)
             relative = candidate.relative_to(assets_root)
             current = assets_root
@@ -335,17 +320,12 @@ class ArticleRepository:
                 article_id=article_id,
             ):
                 if operation not in {"edit", "restore", "visual_edit"}:
-                    raise ValueError(
-                        f"unsupported history operation: {operation}"
-                    )
+                    raise ValueError(f"unsupported history operation: {operation}")
                 path, current = self._find(article_id)
                 current_version = _version(current)
-                if (
-                    not isinstance(expected_version, str)
-                    or not hmac.compare_digest(
-                        current_version,
-                        expected_version,
-                    )
+                if not isinstance(expected_version, str) or not hmac.compare_digest(
+                    current_version,
+                    expected_version,
                 ):
                     raise ArticleConflict(article_id)
 
@@ -356,17 +336,12 @@ class ArticleRepository:
                     and isinstance(payload, dict)
                     and set(payload) == CORE_FIELDS
                 ):
-                    raise InvalidArticle(
-                        "current article cannot use legacy schema"
-                    )
+                    raise InvalidArticle("current article cannot use legacy schema")
 
                 replacement = _validate_payload(
                     payload,
                     expected_dedupe_key=current["dedupe_key"],
-                    allow_legacy_expanded=(
-                        operation == "restore"
-                        or current_is_legacy
-                    ),
+                    allow_legacy_expanded=(operation == "restore" or current_is_legacy),
                 )
                 now = datetime.now(UTC)
                 history_id = (
@@ -431,16 +406,11 @@ class ArticleRepository:
         history_id: str,
         expected_version: str,
     ) -> dict[str, object]:
-        known = {
-            row["history_id"]
-            for row in self.list_history(article_id)
-        }
+        known = {row["history_id"] for row in self.list_history(article_id)}
         if history_id not in known:
             raise ArticleNotFound(history_id)
         value = json.loads(
-            (self.history_dir / article_id / history_id).read_text(
-                encoding="utf-8"
-            )
+            (self.history_dir / article_id / history_id).read_text(encoding="utf-8")
         )
         return self.save_article(
             article_id,
@@ -464,9 +434,7 @@ class ArticleRepository:
                             for failure in failures
                         ]
                         raise InvalidArticle(
-                            "无法通过："
-                            + "、".join(labels)
-                            + "。请先点击“生成图片”。"
+                            "无法通过：" + "、".join(labels) + "。请先点击“生成图片”。"
                         )
                 self.store.set_review_status(payload["dedupe_key"], status)
 
@@ -504,6 +472,111 @@ class ArticleRepository:
                     _version(payload),
                 )
                 return destination
+
+    def wechat_draft_status(self, article_id: str) -> dict[str, object] | None:
+        """Return the persisted status for the article's current version."""
+
+        _, payload = self._find(article_id)
+        return self.store.get_wechat_draft_sync(
+            payload["dedupe_key"], _version(payload)
+        )
+
+    def sync_wechat_draft(
+        self,
+        article_id: str,
+        expected_version: str,
+        client: WechatClient,
+    ) -> dict[str, object]:
+        """Create one draft for an approved immutable article version."""
+
+        with self._write_lock:
+            with article_lock(output_dir=self.output_dir, article_id=article_id):
+                _, payload = self._find(article_id)
+                current_version = _version(payload)
+                if not isinstance(expected_version, str) or not hmac.compare_digest(
+                    current_version, expected_version
+                ):
+                    raise ArticleConflict(article_id)
+                queue_row = next(
+                    (
+                        row
+                        for row in self.store.list_publish_queue()
+                        if row["dedupe_key"] == payload["dedupe_key"]
+                    ),
+                    None,
+                )
+                if queue_row is None or queue_row["status"] != "approved":
+                    raise InvalidArticle(
+                        "article is not approved for WeChat draft sync"
+                    )
+                existing = self.store.get_wechat_draft_sync(
+                    payload["dedupe_key"], current_version
+                )
+                if existing is not None and existing["status"] == "success":
+                    return {
+                        "status": "success",
+                        "media_id": existing["media_id"],
+                        "content_version": current_version,
+                        "idempotent": True,
+                    }
+
+                references = self.asset_references(article_id)
+                cover = references.get("cover")
+                body = references.get("body-01")
+                if cover is None or body is None:
+                    raise InvalidArticle(
+                        "approved article is missing WeChat visual assets"
+                    )
+                cover_path = self.asset_path(
+                    article_id, "cover", str(cover["revision"])
+                )
+                body_path = self.asset_path(
+                    article_id, "body-01", str(body["revision"])
+                )
+                try:
+                    token = client.get_access_token()
+                    cover_media_id = client.upload_permanent_image(token, cover_path)
+                    body_url = client.upload_body_image(token, body_path)
+                    platform_markdown = payload.get("platform_markdown", {})
+                    fallback_markdown = (
+                        platform_markdown.get("wechat", "")
+                        if isinstance(platform_markdown, dict)
+                        else payload.get("master_markdown", "")
+                    )
+                    html = render_wechat_article(
+                        payload.get("article_layout"),
+                        fallback_title=payload.get("master_title"),
+                        fallback_markdown=fallback_markdown,
+                        body_image_url=body_url,
+                    )
+                    media_id = client.add_draft(
+                        token,
+                        title=str(payload["master_title"]),
+                        content=html,
+                        thumb_media_id=cover_media_id,
+                    )
+                except WechatApiError as error:
+                    self.store.record_wechat_draft_sync(
+                        payload["dedupe_key"],
+                        current_version,
+                        status="error",
+                        media_id=None,
+                        error=str(error),
+                    )
+                    raise
+                self.store.record_wechat_draft_sync(
+                    payload["dedupe_key"],
+                    current_version,
+                    status="success",
+                    media_id=media_id,
+                    error=None,
+                )
+                return {
+                    "status": "success",
+                    "media_id": media_id,
+                    "content_version": current_version,
+                    "idempotent": False,
+                }
 
     def _web_edition_images(
         self,
@@ -545,8 +618,7 @@ class ArticleRepository:
 
         _, payload = self._find(article_id)
         queue_rows = {
-            str(row["dedupe_key"]): row
-            for row in self.store.list_publish_queue()
+            str(row["dedupe_key"]): row for row in self.store.list_publish_queue()
         }
         queue_row = queue_rows.get(payload["dedupe_key"])
         destination = self.output_dir / "web" / f"{article_id}.html"

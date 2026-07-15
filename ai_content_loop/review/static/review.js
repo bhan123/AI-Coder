@@ -11,6 +11,8 @@ const state = {
   visualCopyIndex: 0,
   visualRequestActive: false,
   webEditionRequestActive: false,
+  wechatDraftRequestActive: false,
+  wechatDraftStatus: "not_configured",
 };
 
 const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
@@ -46,6 +48,8 @@ const exportWebEditionButton = document.querySelector(
   "#export-web-edition-button",
 );
 const webEditionLinks = document.querySelector("#web-edition-links");
+const wechatDraftButton = document.querySelector("#wechat-draft-button");
+const wechatDraftStatus = document.querySelector("#wechat-draft-status");
 
 const statusLabels = {
   needs_human_review: "待审核",
@@ -164,9 +168,30 @@ function updateWebEditionControls() {
   );
 }
 
+function updateWechatDraftControls() {
+  const labels = {
+    not_configured: "公众号未配置",
+    not_synced: "未同步",
+    success: "已进入公众号草稿箱",
+    error: "同步失败，可重试",
+  };
+  wechatDraftStatus.textContent = (
+    labels[state.wechatDraftStatus] || state.wechatDraftStatus
+  );
+  wechatDraftButton.disabled = (
+    !state.articleId
+    || state.articleStatus !== "approved"
+    || state.dirty
+    || state.wechatDraftRequestActive
+    || state.wechatDraftStatus === "not_configured"
+    || state.wechatDraftStatus === "success"
+  );
+}
+
 function setArticleStatus(status) {
   state.articleStatus = status;
   updateWebEditionControls();
+  updateWechatDraftControls();
 }
 
 function invalidateRichPreview() {
@@ -294,6 +319,7 @@ async function openArticle(articleId) {
     state.version = value.version;
     state.platform = "wechat";
     state.dirty = false;
+    state.wechatDraftStatus = value.wechat_draft?.status || "not_synced";
     const article = state.articles.find(
       (item) => item.article_id === articleId,
     );
@@ -346,6 +372,7 @@ async function saveArticle() {
     state.payload = value.payload;
     state.version = value.version;
     state.dirty = false;
+    state.wechatDraftStatus = "not_synced";
     setArticleStatus("needs_human_review");
     clearWebEditionLinks();
     invalidateRichPreview();
@@ -419,6 +446,7 @@ async function rerenderVisuals({copyIndex = state.visualCopyIndex} = {}) {
     state.version = value.version;
     state.visualCopyIndex = copyIndex;
     state.dirty = false;
+    state.wechatDraftStatus = "not_synced";
     setArticleStatus("needs_human_review");
     clearWebEditionLinks();
     invalidateRichPreview();
@@ -489,6 +517,7 @@ async function restoreHistory(historyId) {
     state.payload = value.payload;
     state.version = value.version;
     state.dirty = false;
+    state.wechatDraftStatus = "not_synced";
     setArticleStatus("needs_human_review");
     clearWebEditionLinks();
     invalidateRichPreview();
@@ -597,6 +626,36 @@ async function exportWebEdition() {
   }
 }
 
+async function syncWechatDraft() {
+  if (!state.articleId || state.articleStatus !== "approved" || state.dirty) {
+    notify("请先通过审核并保存修改。", "error");
+    return;
+  }
+  state.wechatDraftRequestActive = true;
+  updateWechatDraftControls();
+  try {
+    const value = await api(
+      `/api/articles/${encodeURIComponent(state.articleId)}/wechat/draft`,
+      {
+        method: "POST",
+        body: JSON.stringify({version: state.version}),
+      },
+    );
+    state.wechatDraftStatus = value.status;
+    notify(
+      value.idempotent
+        ? "该版本已在公众号草稿箱。"
+        : "已同步到公众号草稿箱。",
+    );
+  } catch (error) {
+    state.wechatDraftStatus = "error";
+    notify(error.message, "error");
+  } finally {
+    state.wechatDraftRequestActive = false;
+    updateWechatDraftControls();
+  }
+}
+
 for (const button of document.querySelectorAll("[data-platform]")) {
   button.addEventListener(
     "click",
@@ -610,6 +669,7 @@ for (const input of [titleInput, columnInput, markdownEditor]) {
     state.dirty = true;
     clearWebEditionLinks();
     updateWebEditionControls();
+    updateWechatDraftControls();
     invalidateRichPreview();
     if (input === markdownEditor) {
       schedulePreview();
@@ -628,6 +688,7 @@ document.querySelector("#copy-button").addEventListener(
 richPreviewButton.addEventListener("click", showRichPreview);
 richPreviewCloseButton.addEventListener("click", closeRichPreview);
 exportWebEditionButton.addEventListener("click", exportWebEdition);
+wechatDraftButton.addEventListener("click", syncWechatDraft);
 document.querySelector("#approve-button").addEventListener(
   "click",
   () => setStatus("approved"),
