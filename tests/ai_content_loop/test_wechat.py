@@ -196,6 +196,32 @@ def test_wechat_client_rejects_credential_bearing_body_image_url(tmp_path):
         client.upload_body_image("token-value", image)
 
 
+def test_wechat_client_upgrades_official_http_body_image_url_to_https(tmp_path):
+    from ai_content_loop.wechat.client import WechatApiError, WechatClient
+
+    image = tmp_path / "body.png"
+    image.write_bytes(b"png")
+    official = WechatClient(
+        "app-id",
+        "super-secret",
+        transport=FakeTransport(
+            [{"url": "http://mmbiz.qpic.cn/body.png?wx_fmt=png"}]
+        ),
+    )
+
+    assert official.upload_body_image("token-value", image) == (
+        "https://mmbiz.qpic.cn/body.png?wx_fmt=png"
+    )
+
+    untrusted = WechatClient(
+        "app-id",
+        "super-secret",
+        transport=FakeTransport([{"url": "http://example.com/body.png"}]),
+    )
+    with pytest.raises(WechatApiError, match="safe image URL"):
+        untrusted.upload_body_image("token-value", image)
+
+
 def test_wechat_draft_sync_store_is_idempotent_and_failure_cannot_overwrite_success(
     tmp_path,
 ):

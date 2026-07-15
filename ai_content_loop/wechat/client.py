@@ -135,6 +135,13 @@ class WechatClient:
         url = value.get("url")
         parsed = urlparse(url) if isinstance(url, str) else None
         if (
+            parsed is not None
+            and parsed.scheme == "http"
+            and parsed.netloc.lower() == "mmbiz.qpic.cn"
+        ):
+            parsed = parsed._replace(scheme="https")
+            url = parsed.geturl()
+        if (
             parsed is None
             or parsed.scheme != "https"
             or not parsed.netloc
