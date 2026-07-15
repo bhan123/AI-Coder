@@ -135,6 +135,7 @@ def press_layout() -> dict:
     paragraph = payload["master_markdown"].split("\n\n", 1)[0]
     return {
         "theme": "press",
+        "structure": "briefing",
         "blocks": [
             {
                 "type": "hero",
@@ -1910,7 +1911,11 @@ def test_validator_rejects_layout_source_url_not_present_in_locked_facts():
 
 def test_validator_keeps_empty_layout_compatible_but_rejects_it_for_new_generation():
     payload = enriched_payload()
-    payload["article_layout"] = {"theme": "press", "blocks": []}
+    payload["article_layout"] = {
+        "theme": "press",
+        "structure": "briefing",
+        "blocks": [],
+    }
 
     legacy_hard, _warnings = validate_generation_payload(
         payload,
@@ -1927,6 +1932,65 @@ def test_validator_keeps_empty_layout_compatible_but_rejects_it_for_new_generati
 
     assert legacy_hard == []
     assert new_generation_hard == ["article_layout:missing_required_blocks"]
+
+
+@pytest.mark.parametrize(
+    "theme", ("press", "tufte", "magazine", "vignelli")
+)
+@pytest.mark.parametrize("structure", ("briefing", "explainer", "essay"))
+def test_validator_accepts_every_supported_article_theme_and_structure(
+    theme,
+    structure,
+):
+    payload = enriched_payload()
+    payload["article_layout"].update(
+        {"theme": theme, "structure": structure}
+    )
+
+    hard, warnings = validate_generation_payload(
+        payload,
+        dedupe_key=DEDUPE_KEY,
+        source_url=SOURCE_URL,
+        require_rich_layout=True,
+        layout_fact_evidence=locked_layout_evidence(),
+    )
+
+    assert hard == []
+    assert warnings == []
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("theme", "neon"), ("structure", "listicle")],
+)
+def test_validator_rejects_unknown_article_theme_or_structure(field, value):
+    payload = enriched_payload()
+    payload["article_layout"][field] = value
+
+    hard, warnings = validate_generation_payload(
+        payload,
+        dedupe_key=DEDUPE_KEY,
+        source_url=SOURCE_URL,
+    )
+
+    assert hard == ["article_layout:invalid_schema"]
+    assert warnings == []
+
+
+def test_validator_requires_explicit_structure_for_new_rich_layout():
+    payload = enriched_payload()
+    del payload["article_layout"]["structure"]
+
+    hard, warnings = validate_generation_payload(
+        payload,
+        dedupe_key=DEDUPE_KEY,
+        source_url=SOURCE_URL,
+        require_rich_layout=True,
+        layout_fact_evidence=locked_layout_evidence(),
+    )
+
+    assert hard == ["article_layout:missing_structure"]
+    assert warnings == []
 
 
 def test_validator_requires_all_reader_first_blocks_for_new_generation():

@@ -16,6 +16,8 @@ from ai_content_loop.visuals.templates import TEMPLATES
 
 
 PLATFORMS = ("wechat", "xiaohongshu", "toutiao", "zhihu")
+ARTICLE_THEMES = ("press", "tufte", "magazine", "vignelli")
+ARTICLE_STRUCTURES = ("briefing", "explainer", "essay")
 CORE_FIELDS = {
     "dedupe_key",
     "column",
@@ -40,7 +42,8 @@ _EDITORIAL_PROFILE_FIELDS = {
     "quality_warnings",
 }
 _VISUAL_ASSET_FIELDS = {"cover", "body"}
-_ARTICLE_LAYOUT_FIELDS = {"theme", "blocks"}
+_ARTICLE_LAYOUT_FIELDS = {"theme", "structure", "blocks"}
+_LEGACY_ARTICLE_LAYOUT_FIELDS = {"theme", "blocks"}
 _ARTICLE_LAYOUT_BLOCK_TYPES = {
     "hero",
     "lead",
@@ -335,7 +338,8 @@ def _validate_article_layout(value: object) -> None:
     if (
         not isinstance(value, dict)
         or set(value) != _ARTICLE_LAYOUT_FIELDS
-        or value.get("theme") != "press"
+        or value.get("theme") not in ARTICLE_THEMES
+        or value.get("structure") not in ARTICLE_STRUCTURES
         or not isinstance(value.get("blocks"), list)
     ):
         raise FinalSchemaError(
@@ -343,6 +347,19 @@ def _validate_article_layout(value: object) -> None:
         )
     for index, block in enumerate(value["blocks"]):
         _validate_article_layout_block(block, index)
+
+
+def _normalize_article_layout(value: object) -> object:
+    """Expand the persisted two-key press layout without mutating its source."""
+    if (
+        isinstance(value, dict)
+        and set(value) == _LEGACY_ARTICLE_LAYOUT_FIELDS
+        and value.get("theme") == "press"
+    ):
+        normalized = deepcopy(value)
+        normalized["structure"] = "briefing"
+        return normalized
+    return value
 
 
 def _is_trusted_legacy_expanded(value: dict[str, Any]) -> bool:
@@ -405,6 +422,9 @@ def normalize_final_payload(
     _validate_visual_assets(
         normalized["visual_assets"],
         dedupe_key=normalized["dedupe_key"],
+    )
+    normalized["article_layout"] = _normalize_article_layout(
+        normalized["article_layout"]
     )
     _validate_article_layout(normalized["article_layout"])
     return normalized

@@ -1,5 +1,8 @@
+import json
+
 import pytest
 
+from ai_content_loop.editorial import schema
 from ai_content_loop.editorial.schema import (
     FinalSchemaError,
     coerce_reviewable_final_payload,
@@ -71,6 +74,7 @@ def enriched_payload():
 def press_layout():
     return {
         "theme": "press",
+        "structure": "briefing",
         "blocks": [
             {
                 "type": "hero",
@@ -120,7 +124,10 @@ def test_normalize_legacy_payload_adds_empty_press_article_layout():
     value = normalize_final_payload(legacy_payload())
 
     assert empty_article_layout() == {"theme": "press", "blocks": []}
-    assert value["article_layout"] == empty_article_layout()
+    assert value["article_layout"] == {
+        **empty_article_layout(),
+        "structure": "briefing",
+    }
 
 
 def test_rejects_article_layout_block_type_outside_supported_set():
@@ -144,6 +151,57 @@ def test_accepts_complete_press_article_layout():
     assert normalized["article_layout"] == press_layout()
 
 
+def test_exports_supported_article_themes_and_structures():
+    assert schema.ARTICLE_THEMES == (
+        "press",
+        "tufte",
+        "magazine",
+        "vignelli",
+    )
+    assert schema.ARTICLE_STRUCTURES == ("briefing", "explainer", "essay")
+
+
+@pytest.mark.parametrize(
+    "theme", ("press", "tufte", "magazine", "vignelli")
+)
+@pytest.mark.parametrize("structure", ("briefing", "explainer", "essay"))
+def test_accepts_every_supported_article_theme_and_structure(
+    theme,
+    structure,
+):
+    payload = enriched_payload()
+    payload["article_layout"] = press_layout()
+    payload["article_layout"].update(
+        {"theme": theme, "structure": structure}
+    )
+
+    normalized = normalize_final_payload(payload)
+
+    assert normalized["article_layout"]["theme"] == theme
+    assert normalized["article_layout"]["structure"] == structure
+
+
+def test_normalizes_legacy_two_key_press_layout_without_mutating_source():
+    payload = enriched_payload()
+    payload["article_layout"] = press_layout()
+    del payload["article_layout"]["structure"]
+    serialized_before = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+
+    normalized = normalize_final_payload(payload)
+
+    assert normalized["article_layout"]["structure"] == "briefing"
+    assert set(payload["article_layout"]) == {"theme", "blocks"}
+    assert json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+    ) == serialized_before
+
+
 def test_accepts_http_arxiv_source_note_url():
     payload = enriched_payload()
     payload["article_layout"] = press_layout()
@@ -163,6 +221,10 @@ def test_accepts_http_arxiv_source_note_url():
     [
         (
             lambda layout: layout.update({"theme": "neon"}),
+            "article_layout does not match",
+        ),
+        (
+            lambda layout: layout.update({"structure": "listicle"}),
             "article_layout does not match",
         ),
         (
@@ -227,7 +289,10 @@ def test_coerce_repairs_invalid_visual_brief_in_pre_layout_enriched_payload():
 
     normalized = coerce_reviewable_final_payload(payload)
 
-    assert normalized["article_layout"] == empty_article_layout()
+    assert normalized["article_layout"] == {
+        **empty_article_layout(),
+        "structure": "briefing",
+    }
     assert len(normalized["visual_brief"]["body_panels"]) == 2
 
 
@@ -254,7 +319,10 @@ def test_expanded_legacy_payload_requires_explicit_compatibility_mode():
         payload,
         allow_legacy_expanded=True,
     )
-    assert normalized["article_layout"] == empty_article_layout()
+    assert normalized["article_layout"] == {
+        **empty_article_layout(),
+        "structure": "briefing",
+    }
 
 
 @pytest.mark.parametrize("tampering", ["refs", "assets"])

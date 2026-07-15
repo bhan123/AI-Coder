@@ -553,16 +553,23 @@ def validate_generation_payload(
             if layout_failure is not None:
                 add_failure(layout_failure)
             if require_rich_layout:
-                master = normalized["master_markdown"]
-                title = normalized["master_title"]
-                rich_layout_failure = _rich_layout_failure(
-                    normalized["article_layout"],
-                    master_title=title,
-                    master_markdown=master,
-                    layout_fact_evidence=layout_fact_evidence,
-                )
-                if rich_layout_failure is not None:
-                    add_failure(rich_layout_failure)
+                original_layout = fields.get("article_layout")
+                if (
+                    not isinstance(original_layout, dict)
+                    or "structure" not in original_layout
+                ):
+                    add_failure("article_layout:missing_structure")
+                else:
+                    master = normalized["master_markdown"]
+                    title = normalized["master_title"]
+                    rich_layout_failure = _rich_layout_failure(
+                        normalized["article_layout"],
+                        master_title=title,
+                        master_markdown=master,
+                        layout_fact_evidence=layout_fact_evidence,
+                    )
+                    if rich_layout_failure is not None:
+                        add_failure(rich_layout_failure)
 
     editorial_profile = fields.get("editorial_profile")
     if not isinstance(editorial_profile, dict):
