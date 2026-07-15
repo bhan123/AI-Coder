@@ -57,6 +57,34 @@ WEB_EDITION_CSP = (
 )
 
 
+def _minimal_visual_brief(payload: dict, template_name: str) -> dict:
+    """Build deterministic local copy when the model visual brief was dropped."""
+
+    title = str(payload.get("master_title") or "内容速览").strip()[:32]
+    panels = [
+        {"label": "核心信息", "reaction": "看重点"},
+        {"label": "事实边界", "reaction": "看原文"},
+    ]
+    return {
+        "template_hint": template_name,
+        "cover_line": title or "内容速览",
+        "cover_subline": "重点内容一图看懂",
+        "body_panels": panels,
+        "alternatives": [
+            {
+                "cover_line": title or "内容速览",
+                "cover_subline": "先看重点，再看原文",
+                "body_panels": panels,
+            },
+            {
+                "cover_line": title or "内容速览",
+                "cover_subline": "核心信息快速浏览",
+                "body_panels": panels,
+            },
+        ],
+    }
+
+
 def create_app(test_config: dict | None = None) -> Flask:
     app = Flask(__name__, template_folder="templates", static_folder="static")
     app.config.from_mapping(
@@ -285,8 +313,15 @@ def create_app(test_config: dict | None = None) -> Flask:
         if not hmac.compare_digest(str(loaded["version"]), version):
             raise ArticleConflict(article_id)
         try:
+            render_payload = loaded["payload"]
+            if render_payload.get("visual_brief") is None:
+                render_payload = dict(render_payload)
+                render_payload["visual_brief"] = _minimal_visual_brief(
+                    render_payload,
+                    template,
+                )
             updated = generate_visual_assets(
-                payload=loaded["payload"],
+                payload=render_payload,
                 output_dir=Path(app.config["OUTPUT_DIR"]),
                 font_path=Path(font_path),
                 template_name=template,

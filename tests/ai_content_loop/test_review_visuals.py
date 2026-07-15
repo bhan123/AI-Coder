@@ -10,7 +10,7 @@ from werkzeug.security import generate_password_hash
 from ai_content_loop.db import ContentStore
 from ai_content_loop.editorial.schema import article_id_for
 from ai_content_loop.models import SourceItem
-from ai_content_loop.review.app import create_app
+from ai_content_loop.review.app import _minimal_visual_brief, create_app
 from ai_content_loop.visuals.pipeline import insert_body_asset_marker
 
 
@@ -42,6 +42,18 @@ def _brief():
             },
         ],
     }
+
+
+def test_minimal_visual_brief_makes_null_visuals_renderable():
+    fallback = _minimal_visual_brief(
+        {"master_title": "一个很长但仍然可以用于封面的文章标题"},
+        "boss_vs_worker",
+    )
+
+    assert fallback["template_hint"] == "boss_vs_worker"
+    assert fallback["cover_line"].startswith("一个很长")
+    assert len(fallback["body_panels"]) == 2
+    assert len(fallback["alternatives"]) == 2
 
 
 def _payload(*, rendered: bool) -> dict[str, object]:
