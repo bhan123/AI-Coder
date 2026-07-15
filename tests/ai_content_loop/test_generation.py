@@ -1909,7 +1909,28 @@ def test_validator_rejects_layout_source_url_not_present_in_locked_facts():
     assert warnings == []
 
 
-def test_validator_keeps_empty_layout_compatible_but_rejects_it_for_new_generation():
+def test_validator_keeps_legacy_two_key_empty_layout_compatible():
+    payload = enriched_payload()
+    payload["article_layout"] = {"theme": "press", "blocks": []}
+
+    legacy_hard, _warnings = validate_generation_payload(
+        payload,
+        dedupe_key=DEDUPE_KEY,
+        source_url=SOURCE_URL,
+    )
+    new_generation_hard, _warnings = validate_generation_payload(
+        payload,
+        dedupe_key=DEDUPE_KEY,
+        source_url=SOURCE_URL,
+        require_rich_layout=True,
+        layout_fact_evidence=locked_layout_evidence(),
+    )
+
+    assert legacy_hard == []
+    assert new_generation_hard == ["article_layout:missing_structure"]
+
+
+def test_validator_rejects_explicit_empty_layout_for_new_generation():
     payload = enriched_payload()
     payload["article_layout"] = {
         "theme": "press",
