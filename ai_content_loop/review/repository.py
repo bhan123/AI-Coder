@@ -46,6 +46,16 @@ class InvalidArticle(ValueError):
     """The submitted article does not match the final article schema."""
 
 
+_APPROVAL_FAILURE_LABELS = {
+    "missing_cover_asset": "缺少封面图",
+    "missing_body_asset": "缺少正文配图",
+    "missing_body_asset_marker": "正文未插入配图标记",
+    "missing_cover_file": "找不到封面图片文件",
+    "missing_body_file": "找不到正文图片文件",
+    "missing_source_metadata": "缺少来源信息",
+}
+
+
 def _version(payload: dict[str, object]) -> str:
     return payload_version(payload)
 
@@ -449,8 +459,14 @@ class ArticleRepository:
                 if status == "approved":
                     failures = self._approval_failures(article_id, payload)
                     if failures:
+                        labels = [
+                            _APPROVAL_FAILURE_LABELS.get(failure, failure)
+                            for failure in failures
+                        ]
                         raise InvalidArticle(
-                            "article has unresolved editorial or visual warnings"
+                            "无法通过："
+                            + "、".join(labels)
+                            + "。请先点击“生成图片”。"
                         )
                 self.store.set_review_status(payload["dedupe_key"], status)
 

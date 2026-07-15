@@ -451,6 +451,16 @@ def test_status_filter_and_update_use_publish_queue(repository):
     assert [row["article_id"] for row in returned] == [article_id]
 
 
+def test_approval_error_names_the_unresolved_blockers(repository):
+    article_id = repository.list_articles()[0]["article_id"]
+
+    with pytest.raises(
+        InvalidArticle,
+        match="无法通过：缺少封面图、缺少正文配图、正文未插入配图标记。请先点击“生成图片”。",
+    ):
+        repository.set_status(article_id, "approved")
+
+
 def test_history_identifier_cannot_escape_history_directory(repository):
     article_id = repository.list_articles()[0]["article_id"]
     loaded = repository.load_article(article_id)
