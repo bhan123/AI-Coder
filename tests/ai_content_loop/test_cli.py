@@ -740,7 +740,7 @@ def test_generate_drafts_isolates_invalid_bundle_and_continues(
                     f"{len(model_prompts)}: {prompt[:300]!r}"
                 )
             payload = good_factual_payload
-        elif "Prompt version: editorial-v16" in prompt:
+        elif "Prompt version: editorial-v17" in prompt:
             if len(model_prompts) != 2:
                 raise AssertionError(
                     "unexpected editorial prompt call "
@@ -780,7 +780,7 @@ def test_generate_drafts_isolates_invalid_bundle_and_continues(
 
     assert len(model_prompts) == 2
     assert "Prompt version: factual-v9" in model_prompts[0]
-    assert "Prompt version: editorial-v16" in model_prompts[1]
+    assert "Prompt version: editorial-v17" in model_prompts[1]
 
     rows = {
         row["dedupe_key"]: row["status"]

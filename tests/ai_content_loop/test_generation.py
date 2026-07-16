@@ -2383,7 +2383,7 @@ def test_active_prompts_state_two_pass_contracts():
     assert "读者回报" in scoring_prompt
     assert "没有公开 Demo、可用入口或强情绪价值" in scoring_prompt
     assert "# 懂技术的损友编辑" in editorial_prompt
-    assert "Prompt version: editorial-v16" in editorial_prompt
+    assert "Prompt version: editorial-v17" in editorial_prompt
     assert "输入包含锁定事实、事实稿和来源。只改变表达，不新增或修改事实。" in editorial_prompt
     assert "## 人格" in editorial_prompt
     assert "懂技术的朋友 45%，产品经理 + 数据工程师 35%" in editorial_prompt
@@ -2398,6 +2398,11 @@ def test_active_prompts_state_two_pass_contracts():
     assert "前 100 字给判断" in editorial_prompt
     assert "第一句话必须制造画面、结果、冲突、意外或明确收益" in editorial_prompt
     assert "实用价值、情绪价值、认知价值三者至少写透一个" in editorial_prompt
+    assert "不算读者回报" in editorial_prompt
+    assert "可复用判断框架" in editorial_prompt
+    assert "正例" in editorial_prompt
+    assert "反例" in editorial_prompt
+    assert "### 三类价值择一写透" not in editorial_prompt
     assert "不得把以下编辑检查项写进正文" in editorial_prompt
     assert "来源没有时间表时，不得写“3 个月内”" in editorial_prompt
     assert "点名比较商业产品必须有对应独立来源" in editorial_prompt
