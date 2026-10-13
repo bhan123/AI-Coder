@@ -1,6 +1,7 @@
 from ai_content_loop.evidence import build_evidence_pack
 from ai_content_loop.quality import evaluate_draft
 from ai_content_loop.templates import build_master_brief, build_platform_skeletons, choose_column
+import pytest
 
 
 def make_pack():
@@ -61,3 +62,49 @@ def test_quality_gate_accepts_grounded_draft():
 
     assert result.passed is True
     assert result.failures == []
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "ChatGPT Sites 上线：一句话生成小网站",
+        "Kimi K3 发布：全面解析这次升级",
+        "一文看懂 AI 如何重新定义办公方式",
+        "最强 AI 助手来了",
+        "这个新模型真正值得关注的地方是什么？",
+    ],
+)
+def test_quality_gate_rejects_synthetic_title_templates(title: str):
+    result = evaluate_draft(
+        title=title,
+        markdown=(
+            "这是一段超过基础长度要求的正文，用具体场景说明工具改变了什么，"
+            "也解释了它的限制和适用边界，让普通读者能够判断是否值得尝试。"
+            "\n\n来源：https://example.com/source"
+        ),
+        source_url="https://example.com/source",
+    )
+
+    assert "synthetic_title" in result.failures
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "老板把周报交给 AI，十分钟后先后悔了",
+        "网站是做出来了，真正费时间的是改第三遍",
+        "它省下半小时，也把返工提前到了上午",
+    ],
+)
+def test_quality_gate_allows_specific_spoken_titles(title: str):
+    result = evaluate_draft(
+        title=title,
+        markdown=(
+            "这是一段超过基础长度要求的正文，用具体场景说明工具改变了什么，"
+            "也解释了它的限制和适用边界，让普通读者能够判断是否值得尝试。"
+            "\n\n来源：https://example.com/source"
+        ),
+        source_url="https://example.com/source",
+    )
+
+    assert "synthetic_title" not in result.failures

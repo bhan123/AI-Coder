@@ -1,0 +1,10 @@
+--- generation.py
++++ generation.py
+@@ -61,6 +61,7 @@
+     "over_promise",
+     "overpromise",
+     "missing_source_link",
++    "below_target_length",
+     "high_risk_advice",
+     "editorial_placeholder",
+ }

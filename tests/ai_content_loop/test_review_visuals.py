@@ -226,10 +226,19 @@ def test_visual_render_route_saves_new_version_and_history(
     csrf = _login(client)
     article_id = _article_id(client)
     loaded = client.get(f"/api/articles/{article_id}").get_json()
+    image_client = object()
+    app.extensions["minimax_image_client"] = image_client
 
     def fake_generate_visual_assets(
-        *, payload, output_dir, font_path, template_name, copy_index
+        *,
+        payload,
+        output_dir,
+        font_path,
+        template_name,
+        copy_index,
+        image_client: object,
     ):
+        assert image_client is app.extensions["minimax_image_client"]
         assert Path(output_dir) == tmp_path / "out"
         assert Path(font_path) == tmp_path / "font.ttf"
         updated = deepcopy(payload)

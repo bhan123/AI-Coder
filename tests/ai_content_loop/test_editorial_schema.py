@@ -151,18 +151,35 @@ def test_accepts_complete_press_article_layout():
     assert normalized["article_layout"] == press_layout()
 
 
+def test_accepts_unheaded_prose_blocks_for_reader_first_layouts():
+    payload = enriched_payload()
+    payload["article_layout"] = press_layout()
+    payload["article_layout"]["blocks"].insert(
+        3,
+        {"type": "prose", "paragraphs": ["引言只需要正文，不需要伪造小标题。"]},
+    )
+
+    normalized = normalize_final_payload(payload)
+
+    assert normalized["article_layout"]["blocks"][3] == {
+        "type": "prose",
+        "paragraphs": ["引言只需要正文，不需要伪造小标题。"],
+    }
+
+
 def test_exports_supported_article_themes_and_structures():
     assert schema.ARTICLE_THEMES == (
         "press",
         "tufte",
         "magazine",
         "vignelli",
+        "kama",
     )
     assert schema.ARTICLE_STRUCTURES == ("briefing", "explainer", "essay")
 
 
 @pytest.mark.parametrize(
-    "theme", ("press", "tufte", "magazine", "vignelli")
+    "theme", ("press", "tufte", "magazine", "vignelli", "kama")
 )
 @pytest.mark.parametrize("structure", ("briefing", "explainer", "essay"))
 def test_accepts_every_supported_article_theme_and_structure(

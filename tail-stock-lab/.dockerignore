@@ -1,0 +1,9 @@
+.git
+backend/data
+backend/.pytest_cache
+backend/.pytest_tmp_*
+backend/pytest-cache-files-*
+frontend/node_modules
+frontend/dist
+__pycache__
+*.pyc

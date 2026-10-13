@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="{{ csrf_token }}">
+  <title>AI 内容审阅台</title>
+  <link
+    rel="stylesheet"
+    href="{{ url_for('static', filename='review.css') }}"
+  >
+  <link
+    rel="stylesheet"
+    href="{{ url_for('static', filename='rich_article.css') }}"
+  >
+  <script
+    src="{{ url_for('static', filename='review.js') }}"
+    defer
+  ></script>
+</head>
+<body>
+  <header class="topbar">
+    <button
+      id="sidebar-button"
+      class="icon-button mobile-only"
+      type="button"
+      aria-label="打开文章列表"
+    >☰</button>
+    <div>
+      <strong>AI 内容审阅台</strong>
+      <span class="muted">Hermes 生成 · 人工把关</span>
+    </div>
+    <div class="topbar-user">
+      <span>{{ username }}</span>
+      <button id="logout-button" class="quiet" type="button">退出</button>
+    </div>
+  </header>
+
+  <main class="review-layout">
+    <aside id="article-sidebar" class="article-sidebar">
+      <div class="sidebar-heading">
+        <h1>文章</h1>
+      </div>
+      <div class="sidebar-filters">
+        <input
+          id="article-search"
+          type="search"
+          placeholder="筛选标题或栏目"
+          aria-label="筛选标题或栏目"
+        >
+        <select id="status-filter" aria-label="审核状态">
+          <option value="">全部</option>
+          <option value="needs_human_review">待审核</option>
+          <option value="approved">已通过</option>
+          <option value="revision_requested">已退回</option>
+        </select>
+        <select id="progress-filter" aria-label="处理进度">
+          <option value="">全部进度</option>
+          <option value="gpt_ready">GPT 待应用</option>
+          <option value="gpt_applied">GPT 已应用</option>
+          <option value="wechat_success">公众号已同步</option>
+        </select>
+      </div>
+      <div
+        id="article-list"
+        class="article-list"
+        aria-live="polite"
+      ></div>
+    </aside>
+
+    <section class="workspace">
+      <div id="empty-state" class="empty-state">
+        <h2>选择一篇文章开始审阅</h2>
+        <p>左侧是 Hermes 已经生成的待发布内容。</p>
+      </div>
+
+      <div id="editor-shell" class="editor-shell" hidden>
+        <div class="article-fields">
+          <label>
+            标题
+            <input id="article-title" maxlength="200000">
+          </label>
+          <label>
+            栏目
+            <input id="article-column" maxlength="200000">
+          </label>
+        </div>
+
+        <nav class="platform-tabs" aria-label="内容版本">
+          <button type="button" data-platform="master">母稿</button>
+          <button type="button" data-platform="wechat">公众号</button>
+          <button type="button" data-platform="xiaohongshu">小红书</button>
+          <button type="button" data-platform="toutiao">今日头条</button>
+          <button type="button" data-platform="zhihu">知乎</button>
+        </nav>
+
+        <div
+          id="quality-warnings"
+          class="quality-warnings"
+          hidden
+        ></div>
+
+        <details id="reader-feedback-panel" class="reader-feedback" open>
+          <summary>
+            <span>
+              读者体验评分
+              <small id="reader-feedback-platform">母稿</small>
+            </span>
+            <strong id="reader-feedback-summary">正在评分…</strong>
+          </summary>
+          <div class="reader-feedback-body">
+            <p class="reader-feedback-note">
+              启发式反馈，不影响审核与发布。修改当前版本后会自动重算。
+            </p>
+            <div
+              id="reader-feedback-grid"
+              class="reader-feedback-grid"
+              aria-live="polite"
+            ></div>
+          </div>
+        </details>
+
+        <section id="gpt-polish-panel" class="gpt-polish">
+          <div class="gpt-polish-header">
+            <div>
+              <strong>GPT 主编精修</strong>
+              <span id="gpt-polish-status">尚未请求</span>
+            </div>
+            <button
+              id="gpt-polish-request-button"
+              class="primary"
+              type="button"
+            >请求 GPT 精修</button>
+          </div>
+          <p id="gpt-polish-note" class="gpt-polish-note">
+            请求后由 Windows 本机 Codex 领取任务；完成后会在这里显示候选稿，人工确认前不会覆盖正文。
+          </p>
+          <div id="gpt-polish-result" class="gpt-polish-result" hidden>
+            <div class="gpt-polish-assessment">
+              <strong id="gpt-polish-summary"></strong>
+              <div
+                id="gpt-polish-score-grid"
+                class="gpt-polish-score-grid"
+              ></div>
+            </div>
+            <div>
+              <strong>主要调整</strong>
+              <ul id="gpt-polish-changes" class="gpt-polish-changes"></ul>
+            </div>
+            <details
+              id="gpt-polish-comparison"
+              class="gpt-polish-comparison"
+            >
+              <summary>查看母稿前后对照</summary>
+              <div>
+                <section>
+                  <h3>当前母稿</h3>
+                  <pre id="gpt-polish-before"></pre>
+                </section>
+                <section>
+                  <h3>GPT 候选稿</h3>
+                  <pre id="gpt-polish-after"></pre>
+                </section>
+              </div>
+            </details>
+            <div class="gpt-polish-actions">
+              <button id="gpt-polish-discard-button" type="button">
+                放弃候选
+              </button>
+              <button
+                id="gpt-polish-apply-button"
+                class="primary"
+                type="button"
+              >应用 GPT 版本</button>
+            </div>
+          </div>
+        </section>
+
+        <section id="visual-panel" class="visual-panel">
+          <div class="visual-card">
+            <span class="pane-title">公众号封面</span>
+            <img
+              id="cover-preview"
+              alt="公众号封面预览"
+              loading="lazy"
+              hidden
+            >
+            <span id="cover-placeholder" class="visual-placeholder">
+              尚未生成
+            </span>
+          </div>
+          <div class="visual-card">
+            <span class="pane-title">正文插图</span>
+            <img
+              id="body-image-preview"
+              alt="正文插图预览"
+              loading="lazy"
+              hidden
+            >
+            <span id="body-placeholder" class="visual-placeholder">
+              尚未生成
+            </span>
+          </div>
+          <div class="visual-controls">
+            <label>
+              梗图模板
+              <select id="visual-template">
+                <option value="boss_vs_worker">老板 vs 打工人</option>
+                <option value="expectation_vs_reality">预期 vs 现实</option>
+                <option value="ai_done_vs_tests">AI 写完 vs 测试打开</option>
+                <option value="before_vs_after">使用前 vs 使用后</option>
+                <option value="do_vs_dont">能干 vs 别干</option>
+                <option value="one_line_verdict">一句话判决</option>
+              </select>
+            </label>
+            <button id="next-copy-button" class="quiet" type="button">
+              换一句梗
+            </button>
+            <button id="render-visuals-button" class="primary" type="button">
+              应用模板
+            </button>
+          </div>
+        </section>
+
+        <div class="mobile-view-switch mobile-only">
+          <button
+            id="show-editor-button"
+            class="selected"
+            type="button"
+          >编辑</button>
+          <button id="show-preview-button" type="button">预览</button>
+        </div>
+
+        <div id="preview-workspace" class="preview-workspace">
+          <div id="content-panes" class="content-panes show-editor">
+            <section class="editor-pane">
+              <div class="pane-title">Markdown</div>
+              <textarea
+                id="markdown-editor"
+                spellcheck="false"
+                aria-label="Markdown 正文"
+              ></textarea>
+            </section>
+            <section class="preview-pane">
+              <div class="pane-title">发布排版预览</div>
+              <article
+                id="article-preview"
+                class="article-preview"
+              ></article>
+            </section>
+          </div>
+
+          <section
+            id="rich-preview-pane"
+            class="rich-preview-pane"
+            aria-label="富阅读预览"
+            hidden
+          >
+            <div class="pane-title rich-preview-heading">
+              <span>富阅读预览</span>
+              <button
+                id="rich-preview-close-button"
+                class="quiet"
+                type="button"
+              >关闭并返回发布排版预览</button>
+            </div>
+            <article
+              id="rich-article-preview"
+              class="article-preview rich-article-preview"
+              aria-live="polite"
+            ></article>
+          </section>
+        </div>
+
+        <footer class="actionbar">
+          <div>
+            <button
+              id="history-button"
+              class="quiet"
+              type="button"
+            >历史版本</button>
+            <button
+              id="copy-button"
+              class="quiet"
+              type="button"
+            >复制正文</button>
+            <button
+              id="rich-preview-button"
+              class="quiet"
+              type="button"
+            >富阅读预览</button>
+            <button
+              id="export-web-edition-button"
+              class="quiet"
+              type="button"
+              disabled
+            >导出网页</button>
+            <span id="web-edition-links" class="web-edition-links" hidden></span>
+            <button
+              id="wechat-draft-button"
+              class="quiet"
+              type="button"
+              disabled
+            >同步公众号草稿</button>
+            <span id="wechat-draft-status" class="wechat-draft-status">未同步</span>
+          </div>
+          <div>
+            <button
+              id="reject-button"
+              class="danger"
+              type="button"
+            >退回</button>
+            <button
+              id="approve-button"
+              class="success"
+              type="button"
+            >通过</button>
+            <button
+              id="save-button"
+              class="primary"
+              type="button"
+            >保存修改</button>
+          </div>
+        </footer>
+      </div>
+    </section>
+  </main>
+
+  <div
+    id="notification"
+    class="notification"
+    role="status"
+    aria-live="polite"
+    hidden
+  ></div>
+
+  <dialog id="history-dialog">
+    <header>
+      <h2>历史版本</h2>
+      <button
+        id="history-close-button"
+        class="icon-button"
+        type="button"
+        aria-label="关闭"
+      >×</button>
+    </header>
+    <div id="history-list"></div>
+  </dialog>
+</body>
+</html>

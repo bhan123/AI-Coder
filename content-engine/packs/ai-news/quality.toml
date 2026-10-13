@@ -1,0 +1,46 @@
+# 质量闸门
+#
+# 引擎决定「检查哪几类问题」，这里决定「具体标准是什么」。
+# 命中任何一条都会记录 failure；引擎再区分硬拒和劝告：
+#
+#   硬拒（进 generation_failed，不可发布）：
+#     missing_source_link / body_too_short / overpromise /
+#     high_risk_advice / clickbait_title / synthetic_title
+#
+#   劝告（照常入审核台，人工判断）：
+#     title_too_short / title_too_long /
+#     too_many_exclamations / too_many_question_marks
+
+# 违禁承诺：出现即硬拒，防止踩监管红线
+banned_promises = [
+  "保证赚钱", "躺赚", "稳赚", "替代所有", "100%",
+  "月入", "日入", "年入百万", "轻松赚钱",
+]
+
+# 高风险话题：需要执业资质的领域，一律不碰
+risky_topics = ["诊断疾病", "投资建议", "法律意见"]
+
+# 标题党词：只查标题，不查正文
+clickbait_patterns = [
+  "震惊", "疯了", "炸裂", "彻底改变", "颠覆",
+  "你绝对想不到", "99%的人不知道",
+]
+
+# 合成标题：读起来像通稿的固定句式。
+#
+# 这份清单要保持克制——提示词负责品味，这道闸只拦几乎永远不该出现的模板句。
+# 每一条都是 Python 正则，用 re.search 匹配（空白已归一化）。
+synthetic_title_patterns = [
+  '(?:发布|上线|推出)\s*[:：]',
+  '一句话\s*(?:生成|搞定|完成|打造|创建)',
+  '一文看懂|全面解析|深度解析|重新定义|未来已来|开启新篇章|真正值得关注|你需要知道|AI\s*新时代',
+  '(?:最强|全能|终极)\s*(?:的\s*)?[Aa][Ii]',
+  '(?:到底是什么|意味着什么|值不值得关注)[？?]?$',
+]
+
+[gates]
+title_min_chars = 8
+title_max_chars = 40
+body_min_chars = 100
+max_exclamations = 5
+max_title_question_marks = 2

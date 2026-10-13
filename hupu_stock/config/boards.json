@@ -1,0 +1,1003 @@
+{
+  "version": "ths-2026-07-10",
+  "source": "akshare-ths+extras",
+  "boards": {
+    "半导体": {
+      "keywords": [
+        "半导体"
+      ],
+      "components": [],
+      "aliases": [
+        "光刻机",
+        "先进封装",
+        "存储芯片",
+        "封测",
+        "芯片",
+        "算力芯片"
+      ],
+      "exclude_keywords": [],
+      "code": "881121"
+    },
+    "白酒": {
+      "keywords": [
+        "白酒"
+      ],
+      "components": [],
+      "aliases": [],
+      "exclude_keywords": [],
+      "code": "881273"
+    },
+    "白色家电": {
+      "keywords": [
+        "白色家电"
+      ],
+      "components": [],
+      "aliases": [
+        "家电",
+        "美的",
+        "海尔",
+        "格力"
+      ],
+      "exclude_keywords": [],
+      "code": "881131"
+    },
+    "保险": {
+      "keywords": [
+        "保险"
+      ],
+      "components": [],
+      "aliases": [
+        "平安",
+        "国寿"
+      ],
+      "exclude_keywords": [],
+      "code": "881156"
+    },
+    "包装印刷": {
+      "keywords": [
+        "包装印刷"
+      ],
+      "components": [],
+      "aliases": [],
+      "exclude_keywords": [],
+      "code": "881138"
+    },
+    "厨卫电器": {
+      "keywords": [
+        "厨卫电器"
+      ],
+      "components": [],
+      "aliases": [],
+      "exclude_keywords": [],
+      "code": "881174"
+    },
+    "电池": {
+      "keywords": [
+        "电池"
+      ],
+      "components": [],
+      "aliases": [
+        "新能源",
+        "电车",
+        "锂电池",
+        "锂电",
+        "宁王",
+        "比亚迪"
+      ],
+      "exclude_keywords": [
+        "纽扣电池",
+        "蓄电池",
+        "干电池"
+      ],
+      "code": "881281"
+    },
+    "电机": {
+      "keywords": [
+        "电机"
+      ],
+      "components": [],
+      "aliases": [],
+      "exclude_keywords": [],
+      "code": "881277"
+    },
+    "电力": {
+      "keywords": [
+        "电力"
+      ],
+      "components": [],
+      "aliases": [
+        "电",
+        "火电",
+        "水电"
+      ],
+      "exclude_keywords": [],
+      "code": "881145"
+    },
+    "电网设备": {
+      "keywords": [
+        "电网设备"
+      ],
+      "components": [],
+      "aliases": [],
+      "exclude_keywords": [],
+      "code": "881278"
+    },
+    "多元金融": {
+      "keywords": [
+        "多元金融"
+      ],
+      "components": [],
+      "aliases": [
+        "信托",
+        "金控"
+      ],
+      "exclude_keywords": [],
+      "code": "881283"
+    },
+    "电子化学品": {
+      "keywords": [
+        "电子化学品"
+      ],
+      "components": [],
+      "aliases": [],
+      "exclude_keywords": [],
+      "code": "881172"
+    },
+    "房地产": {
+      "keywords": [
+        "房地产"
+      ],
+      "components": [],
+      "aliases": [
+        "地产",
+        "万科",
+        "保利"
+      ],
+      "exclude_keywords": [],
+      "code": "881153"
+    },
+    "风电设备": {
+      "keywords": [
+        "风电设备"
+      ],
+      "components": [],
+      "aliases": [
+        "新能源",
+        "风电"
+      ],
+      "exclude_keywords": [],
+      "code": "881280"
+    },
+    "非金属材料": {
+      "keywords": [
+        "非金属材料"
+      ],
+      "components": [],
+      "aliases": [],
+      "exclude_keywords": [],
+      "code": "881167"
+    },
+    "服装家纺": {
+      "keywords": [
+        "服装家纺"
+      ],
+      "components": [],
+      "aliases": [],
+      "exclude_keywords": [],
+      "code": "881136"
+    },
+    "纺织制造": {
+      "keywords": [
+        "纺织制造"
+      ],
+      "components": [],
+      "aliases": [],
+      "exclude_keywords": [],
+      "code": "881135"
+    },
+    "工程机械": {
+      "keywords": [
+        "工程机械"
+      ],
+      "components": [],
+      "aliases": [],
+      "exclude_keywords": [],
+      "code": "881268"
+    },
+    "光伏设备": {
+      "keywords": [
+        "光伏设备"
+      ],
+      "components": [],
+      "aliases": [
+        "新能源",
+        "光伏",
+        "硅料",
+        "隆基",
+        "通威",
+        "阳光电源"
+      ],
+      "exclude_keywords": [],
+      "code": "881279"
+    },
+    "贵金属": {
+      "keywords": [
+        "贵金属"
+      ],
+      "components": [],
+      "aliases": [
+        "黄金",
+        "白银"
+      ],
+      "exclude_keywords": [],
+      "code": "881169"
+    },
+    "轨交设备": {
+      "keywords": [
+        "轨交设备"
+      ],
+      "components": [],
+      "aliases": [],
+      "exclude_keywords": [],
+      "code": "881269"
+    },
+    "港口航运": {
+      "keywords": [
+        "港口航运"
+      ],
+      "components": [],
+      "aliases": [],
+      "exclude_keywords": [],
+      "code": "881148"
+    },
+    "公路铁路运输": {
+      "keywords": [
+        "公路铁路运输"
+      ],
+      "components": [],
+      "aliases": [],
+      "exclude_keywords": [],
+      "code": "881149"
+    },
+    "钢铁": {
+      "keywords": [
+        "钢铁"
+      ],
+      "components": [],
+      "aliases": [
+        "螺纹钢"
+      ],
+      "exclude_keywords": [],
+      "code": "881112"
+    },
+    "光学光电子": {
+      "keywords": [
+        "光学光电子"
+      ],
+      "components": [],
+      "aliases": [
+        "光模块",
+        "光通信",
+        "CPO"
+      ],
+      "exclude_keywords": [],
+      "code": "881122"
+    },
+    "工业金属": {
+      "keywords": [
+        "工业金属"
+      ],
+      "components": [],
+      "aliases": [],
+      "exclude_keywords": [],
+      "code": "881168"
+    },
+    "环保设备": {
+      "keywords": [
+        "环保设备"
+      ],
+      "components": [],
+      "aliases": [
+        "环保"
+      ],
+      "exclude_keywords": [],
+      "code": "881284"
+    },
+    "环境治理": {
+      "keywords": [
+        "环境治理"
+      ],
+      "components": [],
+      "aliases": [
+        "环保"
+      ],
+      "exclude_keywords": [],
+      "code": "881181"
+    },
+    "互联网电商": {
+      "keywords": [
+        "互联网电商"
+      ],
+      "components": [],
+      "aliases": [],
+      "exclude_keywords": [],
+      "code": "881177"
+    },
+    "黑色家电": {
+      "keywords": [
+        "黑色家电"
+      ],
+      "components": [],
+      "aliases": [],
+      "exclude_keywords": [],
+      "code": "881132"
+    },
+    "化学纤维": {
+      "keywords": [
+        "化学纤维"
+      ],
+      "components": [],
+      "aliases": [],
+      "exclude_keywords": [],
+      "code": "881264"
+    },
+    "化学原料": {
+      "keywords": [
+        "化学原料"
+      ],
+      "components": [],
+      "aliases": [],
+      "exclude_keywords": [],
+      "code": "881108"
+    },
+    "化学制品": {
+      "keywords": [
+        "化学制品"
+      ],
+      "components": [],
+      "aliases": [],
+      "exclude_keywords": [],
+      "code": "881109"
+    },
+    "化学制药": {
+      "keywords": [
+        "化学制药"
+      ],
+      "components": [],
+      "aliases": [
+        "医药",
+        "创新药",
+        "CRO",
+        "恒瑞"
+      ],
+      "exclude_keywords": [],
+      "code": "881140"
+    },
+    "IT服务": {
+      "keywords": [
+        "IT服务"
+      ],
+      "components": [],
+      "aliases": [
+        "人工智能",
+        "AI",
+        "大模型"
+      ],
+      "exclude_keywords": [],
+      "code": "881271"
+    },
+    "机场航运": {
+      "keywords": [
+        "机场航运"
+      ],
+      "components": [],
+      "aliases": [
+        "航空"
+      ],
+      "exclude_keywords": [],
+      "code": "881151"
+    },
+    "军工电子": {
+      "keywords": [
+        "军工电子"
+      ],
+      "components": [],
+      "aliases": [
+        "军工",
+        "军军"
+      ],
+      "exclude_keywords": [],
+      "code": "881276"
+    },
+    "军工装备": {
+      "keywords": [
+        "军工装备"
+      ],
+      "components": [],
+      "aliases": [
+        "军工",
+        "军军",
+        "沈飞"
+      ],
+      "exclude_keywords": [],
+      "code": "881166"
+    },
+    "家居用品": {
+      "keywords": [
+        "家居用品"
+      ],
+      "components": [],
+      "aliases": [],
+      "exclude_keywords": [],
+      "code": "881139"
+    },
+    "计算机设备": {
+      "keywords": [
+        "计算机设备"
+      ],
+      "components": [],
+      "aliases": [
+        "人工智能",
+        "服务器"
+      ],
+      "exclude_keywords": [],
+      "code": "881130"
+    },
+    "金属新材料": {
+      "keywords": [
+        "金属新材料"
+      ],
+      "components": [],
+      "aliases": [],
+      "exclude_keywords": [],
+      "code": "881114"
+    },
+    "教育": {
+      "keywords": [
+        "教育"
+      ],
+      "components": [],
+      "aliases": [
+        "中公"
+      ],
+      "exclude_keywords": [],
+      "code": "881178"
+    },
+    "建筑材料": {
+      "keywords": [
+        "建筑材料"
+      ],
+      "components": [],
+      "aliases": [],
+      "exclude_keywords": [],
+      "code": "881115"
+    },
+    "建筑装饰": {
+      "keywords": [
+        "建筑装饰"
+      ],
+      "components": [],
+      "aliases": [],
+      "exclude_keywords": [],
+      "code": "881116"
+    },
+    "零售": {
+      "keywords": [
+        "零售"
+      ],
+      "components": [],
+      "aliases": [
+        "消费",
+        "电商"
+      ],
+      "exclude_keywords": [],
+      "code": "881158"
+    },
+    "旅游及酒店": {
+      "keywords": [
+        "旅游及酒店"
+      ],
+      "components": [],
+      "aliases": [
+        "旅游",
+        "酒店",
+        "出行"
+      ],
+      "exclude_keywords": [],
+      "code": "881160"
+    },
+    "美容护理": {
+      "keywords": [
+        "美容护理"
+      ],
+      "components": [],
+      "aliases": [],
+      "exclude_keywords": [],
+      "code": "881182"
+    },
+    "煤炭开采加工": {
+      "keywords": [
+        "煤炭开采加工"
+      ],
+      "components": [],
+      "aliases": [
+        "煤炭",
+        "煤老板",
+        "动力煤",
+        "焦煤"
+      ],
+      "exclude_keywords": [],
+      "code": "881105"
+    },
+    "贸易": {
+      "keywords": [
+        "贸易"
+      ],
+      "components": [],
+      "aliases": [],
+      "exclude_keywords": [],
+      "code": "881159"
+    },
+    "农产品加工": {
+      "keywords": [
+        "农产品加工"
+      ],
+      "components": [],
+      "aliases": [],
+      "exclude_keywords": [],
+      "code": "881103"
+    },
+    "农化制品": {
+      "keywords": [
+        "农化制品"
+      ],
+      "components": [],
+      "aliases": [],
+      "exclude_keywords": [],
+      "code": "881263"
+    },
+    "能源金属": {
+      "keywords": [
+        "能源金属"
+      ],
+      "components": [],
+      "aliases": [
+        "锂矿",
+        "锂电",
+        "稀土"
+      ],
+      "exclude_keywords": [],
+      "code": "881267"
+    },
+    "汽车服务及其他": {
+      "keywords": [
+        "汽车服务及其他"
+      ],
+      "components": [],
+      "aliases": [],
+      "exclude_keywords": [],
+      "code": "881128"
+    },
+    "汽车零部件": {
+      "keywords": [
+        "汽车零部件"
+      ],
+      "components": [],
+      "aliases": [],
+      "exclude_keywords": [],
+      "code": "881126"
+    },
+    "汽车整车": {
+      "keywords": [
+        "汽车整车"
+      ],
+      "components": [],
+      "aliases": [
+        "新能源车",
+        "造车新势力",
+        "整车",
+        "比亚迪"
+      ],
+      "exclude_keywords": [],
+      "code": "881125"
+    },
+    "其他电源设备": {
+      "keywords": [
+        "其他电源设备"
+      ],
+      "components": [],
+      "aliases": [],
+      "exclude_keywords": [],
+      "code": "881282"
+    },
+    "其他电子": {
+      "keywords": [
+        "其他电子"
+      ],
+      "components": [],
+      "aliases": [],
+      "exclude_keywords": [],
+      "code": "881123"
+    },
+    "其他社会服务": {
+      "keywords": [
+        "其他社会服务"
+      ],
+      "components": [],
+      "aliases": [],
+      "exclude_keywords": [],
+      "code": "881179"
+    },
+    "软件开发": {
+      "keywords": [
+        "软件开发"
+      ],
+      "components": [],
+      "aliases": [
+        "人工智能",
+        "AI",
+        "大模型",
+        "算力",
+        "ChatGPT"
+      ],
+      "exclude_keywords": [],
+      "code": "881272"
+    },
+    "燃气": {
+      "keywords": [
+        "燃气"
+      ],
+      "components": [],
+      "aliases": [
+        "天然气"
+      ],
+      "exclude_keywords": [],
+      "code": "881146"
+    },
+    "塑料制品": {
+      "keywords": [
+        "塑料制品"
+      ],
+      "components": [],
+      "aliases": [],
+      "exclude_keywords": [],
+      "code": "881265"
+    },
+    "食品加工制造": {
+      "keywords": [
+        "食品加工制造"
+      ],
+      "components": [],
+      "aliases": [
+        "食品",
+        "消费"
+      ],
+      "exclude_keywords": [],
+      "code": "881134"
+    },
+    "生物制品": {
+      "keywords": [
+        "生物制品"
+      ],
+      "components": [],
+      "aliases": [
+        "医药",
+        "疫苗"
+      ],
+      "exclude_keywords": [],
+      "code": "881142"
+    },
+    "石油加工贸易": {
+      "keywords": [
+        "石油加工贸易"
+      ],
+      "components": [],
+      "aliases": [
+        "石油",
+        "中石油"
+      ],
+      "exclude_keywords": [],
+      "code": "881180"
+    },
+    "通信服务": {
+      "keywords": [
+        "通信服务"
+      ],
+      "components": [],
+      "aliases": [
+        "运营商",
+        "三大运营商"
+      ],
+      "exclude_keywords": [],
+      "code": "881162"
+    },
+    "通信设备": {
+      "keywords": [
+        "通信设备"
+      ],
+      "components": [],
+      "aliases": [
+        "人工智能",
+        "5G",
+        "通信"
+      ],
+      "exclude_keywords": [],
+      "code": "881129"
+    },
+    "通用设备": {
+      "keywords": [
+        "通用设备"
+      ],
+      "components": [],
+      "aliases": [
+        "机器人",
+        "工业母机"
+      ],
+      "exclude_keywords": [],
+      "code": "881117"
+    },
+    "文化传媒": {
+      "keywords": [
+        "文化传媒"
+      ],
+      "components": [],
+      "aliases": [
+        "传媒",
+        "影视"
+      ],
+      "exclude_keywords": [],
+      "code": "881164"
+    },
+    "物流": {
+      "keywords": [
+        "物流"
+      ],
+      "components": [],
+      "aliases": [
+        "快递"
+      ],
+      "exclude_keywords": [],
+      "code": "881152"
+    },
+    "消费电子": {
+      "keywords": [
+        "消费电子"
+      ],
+      "components": [],
+      "aliases": [
+        "果链",
+        "苹果链"
+      ],
+      "exclude_keywords": [],
+      "code": "881124"
+    },
+    "小家电": {
+      "keywords": [
+        "小家电"
+      ],
+      "components": [],
+      "aliases": [],
+      "exclude_keywords": [],
+      "code": "881173"
+    },
+    "小金属": {
+      "keywords": [
+        "小金属"
+      ],
+      "components": [],
+      "aliases": [],
+      "exclude_keywords": [],
+      "code": "881170"
+    },
+    "橡胶制品": {
+      "keywords": [
+        "橡胶制品"
+      ],
+      "components": [],
+      "aliases": [],
+      "exclude_keywords": [],
+      "code": "881266"
+    },
+    "元件": {
+      "keywords": [
+        "元件"
+      ],
+      "components": [],
+      "aliases": [
+        "PCB",
+        "射频"
+      ],
+      "exclude_keywords": [],
+      "code": "881270"
+    },
+    "医疗服务": {
+      "keywords": [
+        "医疗服务"
+      ],
+      "components": [],
+      "aliases": [],
+      "exclude_keywords": [],
+      "code": "881175"
+    },
+    "医疗器械": {
+      "keywords": [
+        "医疗器械"
+      ],
+      "components": [],
+      "aliases": [
+        "医药",
+        "迈瑞"
+      ],
+      "exclude_keywords": [],
+      "code": "881144"
+    },
+    "饮料制造": {
+      "keywords": [
+        "饮料制造"
+      ],
+      "components": [],
+      "aliases": [
+        "饮品",
+        "消费"
+      ],
+      "exclude_keywords": [],
+      "code": "881133"
+    },
+    "油气开采及服务": {
+      "keywords": [
+        "油气开采及服务"
+      ],
+      "components": [],
+      "aliases": [],
+      "exclude_keywords": [],
+      "code": "881107"
+    },
+    "影视院线": {
+      "keywords": [
+        "影视院线"
+      ],
+      "components": [],
+      "aliases": [],
+      "exclude_keywords": [],
+      "code": "881274"
+    },
+    "游戏": {
+      "keywords": [
+        "游戏"
+      ],
+      "components": [],
+      "aliases": [
+        "米哈游",
+        "腾讯",
+        "网易",
+        "GAME"
+      ],
+      "exclude_keywords": [],
+      "code": "881275"
+    },
+    "银行": {
+      "keywords": [
+        "银行"
+      ],
+      "components": [],
+      "aliases": [
+        "大行",
+        "工行",
+        "建行",
+        "招行",
+        "宁波银行"
+      ],
+      "exclude_keywords": [
+        "银行转账",
+        "银行卡",
+        "开户"
+      ],
+      "code": "881155"
+    },
+    "医药商业": {
+      "keywords": [
+        "医药商业"
+      ],
+      "components": [],
+      "aliases": [
+        "医药",
+        "药店"
+      ],
+      "exclude_keywords": [],
+      "code": "881143"
+    },
+    "养殖业": {
+      "keywords": [
+        "养殖业"
+      ],
+      "components": [],
+      "aliases": [
+        "猪",
+        "鸡",
+        "水产"
+      ],
+      "exclude_keywords": [],
+      "code": "881102"
+    },
+    "自动化设备": {
+      "keywords": [
+        "自动化设备"
+      ],
+      "components": [],
+      "aliases": [
+        "机器人",
+        "具身智能",
+        "减速器",
+        "机器视觉"
+      ],
+      "exclude_keywords": [],
+      "code": "881171"
+    },
+    "综合": {
+      "keywords": [
+        "综合"
+      ],
+      "components": [],
+      "aliases": [],
+      "exclude_keywords": [],
+      "code": "881165"
+    },
+    "证券": {
+      "keywords": [
+        "证券"
+      ],
+      "components": [],
+      "aliases": [
+        "券商",
+        "牛市旗手",
+        "渣男券商"
+      ],
+      "exclude_keywords": [],
+      "code": "881157"
+    },
+    "中药": {
+      "keywords": [
+        "中药"
+      ],
+      "components": [],
+      "aliases": [
+        "医药",
+        "片仔癀",
+        "同仁堂"
+      ],
+      "exclude_keywords": [],
+      "code": "881141"
+    },
+    "专用设备": {
+      "keywords": [
+        "专用设备"
+      ],
+      "components": [],
+      "aliases": [],
+      "exclude_keywords": [],
+      "code": "881118"
+    },
+    "造纸": {
+      "keywords": [
+        "造纸"
+      ],
+      "components": [],
+      "aliases": [],
+      "exclude_keywords": [],
+      "code": "881137"
+    },
+    "种植业与林业": {
+      "keywords": [
+        "种植业与林业"
+      ],
+      "components": [],
+      "aliases": [
+        "农业",
+        "猪肉",
+        "猪"
+      ],
+      "exclude_keywords": [],
+      "code": "881101"
+    }
+  }
+}

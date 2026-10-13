@@ -1,0 +1,36 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      api:
+        condition: service_started
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+    restart: unless-stopped
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+
+  api:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    environment:
+      APP_DATABASE_PATH: /app/data/love-fueling-station.sqlite
+      APP_ORIGIN: https://${APP_DOMAIN}
+      PORT: "8787"
+      COOKIE_SECURE: "true"
+      SESSION_SECRET: ${SESSION_SECRET}
+    restart: unless-stopped
+    volumes:
+      - station_data:/app/data
+
+volumes:
+  caddy_data:
+  caddy_config:
+  station_data:

@@ -1,0 +1,440 @@
+{
+  "scope": "2026-08-17 <= alert_date < 2026-09-07; latest observed quote is NOT official close",
+  "table_counts": {
+    "strategy_runs": 1037,
+    "strategy_signals": 995,
+    "market_snapshots": 540075,
+    "alert_events": 435,
+    "alert_event_points": 29479,
+    "t1_outcomes": 879
+  },
+  "run_coverage": [
+    {
+      "strategy_id": "fishing-reversal",
+      "version": "1.0.0",
+      "runs": 3,
+      "first_at": "2026-08-03T14:50:02.671440+08:00",
+      "last_at": "2026-08-06T14:50:02.644923+08:00"
+    },
+    {
+      "strategy_id": "fishing-reversal",
+      "version": "1.1.0",
+      "runs": 19,
+      "first_at": "2026-08-07T14:50:01.788727+08:00",
+      "last_at": "2026-09-04T14:50:02.240203+08:00"
+    },
+    {
+      "strategy_id": "limit-up-ambush",
+      "version": "0.1.0",
+      "runs": 62,
+      "first_at": "2026-08-13T09:36:51.464261+08:00",
+      "last_at": "2026-08-14T10:02:12.805284+08:00"
+    },
+    {
+      "strategy_id": "limit-up-ambush",
+      "version": "0.2.0",
+      "runs": 843,
+      "first_at": "2026-08-14T10:04:28.525358+08:00",
+      "last_at": "2026-09-07T14:28:22.716680+08:00"
+    },
+    {
+      "strategy_id": "p1-sector-resonance",
+      "version": "1.1.0",
+      "runs": 19,
+      "first_at": "2026-08-07T14:50:01.788727+08:00",
+      "last_at": "2026-09-04T14:50:02.240203+08:00"
+    },
+    {
+      "strategy_id": "p2-trend-pullback",
+      "version": "1.1.0",
+      "runs": 21,
+      "first_at": "2026-08-04T14:50:01.820848+08:00",
+      "last_at": "2026-09-04T14:50:02.240203+08:00"
+    },
+    {
+      "strategy_id": "p3-platform-breakout",
+      "version": "1.1.0",
+      "runs": 21,
+      "first_at": "2026-08-04T14:50:01.820848+08:00",
+      "last_at": "2026-09-04T14:50:02.240203+08:00"
+    },
+    {
+      "strategy_id": "p4-leader-reconvergence",
+      "version": "1.1.0",
+      "runs": 19,
+      "first_at": "2026-08-07T14:50:01.788727+08:00",
+      "last_at": "2026-09-04T14:50:02.240203+08:00"
+    }
+  ],
+  "alert_totals": {
+    "n": 337,
+    "observed_limit_hits": 106,
+    "positive_last_observation": 151,
+    "mean_return_pct": -0.505,
+    "median_return_pct": -0.234,
+    "unfinalized": 0,
+    "last_observation_before_1457": 0,
+    "last_observation_before_1500": 337,
+    "observed_limit_hit_rate_pct": 31.45,
+    "positive_last_observation_rate_pct": 44.81
+  },
+  "alert_days": {
+    "2026-08-17": {
+      "n": 38,
+      "observed_limit_hits": 15,
+      "positive_last_observation": 26,
+      "mean_return_pct": 1.062,
+      "median_return_pct": 1.11,
+      "unfinalized": 0,
+      "last_observation_before_1457": 0,
+      "last_observation_before_1500": 38
+    },
+    "2026-08-18": {
+      "n": 1,
+      "observed_limit_hits": 0,
+      "positive_last_observation": 0,
+      "mean_return_pct": -5.958,
+      "median_return_pct": -5.958,
+      "unfinalized": 0,
+      "last_observation_before_1457": 0,
+      "last_observation_before_1500": 1
+    },
+    "2026-08-20": {
+      "n": 47,
+      "observed_limit_hits": 14,
+      "positive_last_observation": 19,
+      "mean_return_pct": -0.86,
+      "median_return_pct": -0.437,
+      "unfinalized": 0,
+      "last_observation_before_1457": 0,
+      "last_observation_before_1500": 47
+    },
+    "2026-08-21": {
+      "n": 8,
+      "observed_limit_hits": 5,
+      "positive_last_observation": 5,
+      "mean_return_pct": 0.609,
+      "median_return_pct": 0.767,
+      "unfinalized": 0,
+      "last_observation_before_1457": 0,
+      "last_observation_before_1500": 8
+    },
+    "2026-08-24": {
+      "n": 1,
+      "observed_limit_hits": 0,
+      "positive_last_observation": 0,
+      "mean_return_pct": -3.159,
+      "median_return_pct": -3.159,
+      "unfinalized": 0,
+      "last_observation_before_1457": 0,
+      "last_observation_before_1500": 1
+    },
+    "2026-08-25": {
+      "n": 42,
+      "observed_limit_hits": 10,
+      "positive_last_observation": 19,
+      "mean_return_pct": -0.165,
+      "median_return_pct": -0.131,
+      "unfinalized": 0,
+      "last_observation_before_1457": 0,
+      "last_observation_before_1500": 42
+    },
+    "2026-08-26": {
+      "n": 17,
+      "observed_limit_hits": 1,
+      "positive_last_observation": 4,
+      "mean_return_pct": -1.606,
+      "median_return_pct": -1.622,
+      "unfinalized": 0,
+      "last_observation_before_1457": 0,
+      "last_observation_before_1500": 17
+    },
+    "2026-08-27": {
+      "n": 33,
+      "observed_limit_hits": 11,
+      "positive_last_observation": 23,
+      "mean_return_pct": 0.989,
+      "median_return_pct": 0.892,
+      "unfinalized": 0,
+      "last_observation_before_1457": 0,
+      "last_observation_before_1500": 33
+    },
+    "2026-08-28": {
+      "n": 31,
+      "observed_limit_hits": 11,
+      "positive_last_observation": 10,
+      "mean_return_pct": -1.167,
+      "median_return_pct": -1.474,
+      "unfinalized": 0,
+      "last_observation_before_1457": 0,
+      "last_observation_before_1500": 31
+    },
+    "2026-08-31": {
+      "n": 31,
+      "observed_limit_hits": 8,
+      "positive_last_observation": 20,
+      "mean_return_pct": 0.844,
+      "median_return_pct": 0.684,
+      "unfinalized": 0,
+      "last_observation_before_1457": 0,
+      "last_observation_before_1500": 31
+    },
+    "2026-09-01": {
+      "n": 34,
+      "observed_limit_hits": 12,
+      "positive_last_observation": 14,
+      "mean_return_pct": -0.404,
+      "median_return_pct": -0.261,
+      "unfinalized": 0,
+      "last_observation_before_1457": 0,
+      "last_observation_before_1500": 34
+    },
+    "2026-09-03": {
+      "n": 15,
+      "observed_limit_hits": 4,
+      "positive_last_observation": 2,
+      "mean_return_pct": -3.013,
+      "median_return_pct": -1.774,
+      "unfinalized": 0,
+      "last_observation_before_1457": 0,
+      "last_observation_before_1500": 15
+    },
+    "2026-09-04": {
+      "n": 39,
+      "observed_limit_hits": 15,
+      "positive_last_observation": 9,
+      "mean_return_pct": -2.44,
+      "median_return_pct": -2.853,
+      "unfinalized": 0,
+      "last_observation_before_1457": 0,
+      "last_observation_before_1500": 39
+    }
+  },
+  "alert_segments": {
+    "main_board": {
+      "n": 214,
+      "observed_limit_hits": 85,
+      "positive_last_observation": 98,
+      "mean_return_pct": -0.478,
+      "median_return_pct": -0.067,
+      "unfinalized": 0,
+      "last_observation_before_1457": 0,
+      "last_observation_before_1500": 214
+    },
+    "20pct_board": {
+      "n": 123,
+      "observed_limit_hits": 21,
+      "positive_last_observation": 53,
+      "mean_return_pct": -0.55,
+      "median_return_pct": -0.433,
+      "unfinalized": 0,
+      "last_observation_before_1457": 0,
+      "last_observation_before_1500": 123
+    },
+    "hits_ge_3": {
+      "n": 79,
+      "observed_limit_hits": 31,
+      "positive_last_observation": 52,
+      "mean_return_pct": 0.771,
+      "median_return_pct": 0.826,
+      "unfinalized": 0,
+      "last_observation_before_1457": 0,
+      "last_observation_before_1500": 79
+    },
+    "hits_lt_3": {
+      "n": 258,
+      "observed_limit_hits": 75,
+      "positive_last_observation": 99,
+      "mean_return_pct": -0.895,
+      "median_return_pct": -0.55,
+      "unfinalized": 0,
+      "last_observation_before_1457": 0,
+      "last_observation_before_1500": 258
+    },
+    "max_score_ge_85": {
+      "n": 81,
+      "observed_limit_hits": 43,
+      "positive_last_observation": 40,
+      "mean_return_pct": -0.547,
+      "median_return_pct": 0,
+      "unfinalized": 0,
+      "last_observation_before_1457": 0,
+      "last_observation_before_1500": 81
+    },
+    "max_score_lt_85": {
+      "n": 256,
+      "observed_limit_hits": 63,
+      "positive_last_observation": 111,
+      "mean_return_pct": -0.491,
+      "median_return_pct": -0.286,
+      "unfinalized": 0,
+      "last_observation_before_1457": 0,
+      "last_observation_before_1500": 256
+    }
+  },
+  "scan_days": [
+    {
+      "day": "2026-08-17",
+      "scans": 50,
+      "min_universe": 4892,
+      "first_scan": "2026-08-17T09:36:12.754800+08:00",
+      "last_scan": "2026-08-17T14:28:38.419539+08:00"
+    },
+    {
+      "day": "2026-08-18",
+      "scans": 48,
+      "min_universe": 4991,
+      "first_scan": "2026-08-18T09:36:08.420999+08:00",
+      "last_scan": "2026-08-18T14:28:49.569737+08:00"
+    },
+    {
+      "day": "2026-08-19",
+      "scans": 49,
+      "min_universe": 4992,
+      "first_scan": "2026-08-19T09:36:36.391738+08:00",
+      "last_scan": "2026-08-19T14:28:23.580377+08:00"
+    },
+    {
+      "day": "2026-08-20",
+      "scans": 51,
+      "min_universe": 4992,
+      "first_scan": "2026-08-20T09:36:50.253952+08:00",
+      "last_scan": "2026-08-20T14:29:32.816116+08:00"
+    },
+    {
+      "day": "2026-08-21",
+      "scans": 50,
+      "min_universe": 4752,
+      "first_scan": "2026-08-21T09:35:11.854667+08:00",
+      "last_scan": "2026-08-21T14:29:47.326782+08:00"
+    },
+    {
+      "day": "2026-08-24",
+      "scans": 51,
+      "min_universe": 4994,
+      "first_scan": "2026-08-24T09:36:25.880534+08:00",
+      "last_scan": "2026-08-24T14:28:31.459253+08:00"
+    },
+    {
+      "day": "2026-08-25",
+      "scans": 51,
+      "min_universe": 4995,
+      "first_scan": "2026-08-25T09:36:09.057812+08:00",
+      "last_scan": "2026-08-25T14:29:42.548909+08:00"
+    },
+    {
+      "day": "2026-08-26",
+      "scans": 50,
+      "min_universe": 4998,
+      "first_scan": "2026-08-26T09:36:52.541537+08:00",
+      "last_scan": "2026-08-26T14:29:09.951811+08:00"
+    },
+    {
+      "day": "2026-08-27",
+      "scans": 47,
+      "min_universe": 5002,
+      "first_scan": "2026-08-27T09:36:33.769614+08:00",
+      "last_scan": "2026-08-27T14:29:32.647808+08:00"
+    },
+    {
+      "day": "2026-08-28",
+      "scans": 52,
+      "min_universe": 5000,
+      "first_scan": "2026-08-28T09:35:15.702950+08:00",
+      "last_scan": "2026-08-28T14:29:16.896958+08:00"
+    },
+    {
+      "day": "2026-08-31",
+      "scans": 51,
+      "min_universe": 4996,
+      "first_scan": "2026-08-31T09:36:09.195116+08:00",
+      "last_scan": "2026-08-31T14:29:24.527957+08:00"
+    },
+    {
+      "day": "2026-09-01",
+      "scans": 50,
+      "min_universe": 4907,
+      "first_scan": "2026-09-01T09:35:14.953093+08:00",
+      "last_scan": "2026-09-01T14:29:55.954087+08:00"
+    },
+    {
+      "day": "2026-09-02",
+      "scans": 52,
+      "min_universe": 4814,
+      "first_scan": "2026-09-02T09:35:08.254713+08:00",
+      "last_scan": "2026-09-02T14:29:36.664919+08:00"
+    },
+    {
+      "day": "2026-09-03",
+      "scans": 51,
+      "min_universe": 4717,
+      "first_scan": "2026-09-03T09:35:46.964168+08:00",
+      "last_scan": "2026-09-03T14:27:52.816395+08:00"
+    },
+    {
+      "day": "2026-09-04",
+      "scans": 51,
+      "min_universe": 4814,
+      "first_scan": "2026-09-04T09:35:23.762935+08:00",
+      "last_scan": "2026-09-04T14:29:49.450457+08:00"
+    },
+    {
+      "day": "2026-09-07",
+      "scans": 50,
+      "min_universe": 4820,
+      "first_scan": "2026-09-07T09:36:55.081374+08:00",
+      "last_scan": "2026-09-07T14:28:22.716680+08:00"
+    }
+  ],
+  "t1_coverage": [
+    {
+      "strategy_id": "fishing-reversal",
+      "signals": 31,
+      "outcomes": 31,
+      "charts": 25,
+      "oldest_pending": null
+    },
+    {
+      "strategy_id": "limit-up-ambush",
+      "signals": 633,
+      "outcomes": 633,
+      "charts": 428,
+      "oldest_pending": null
+    }
+  ],
+  "persistent_events_with_gaps": {
+    "count": 70,
+    "examples": [
+      {
+        "day": "2026-08-17",
+        "code": "600330",
+        "hit_count": 3
+      },
+      {
+        "day": "2026-08-17",
+        "code": "688508",
+        "hit_count": 7
+      },
+      {
+        "day": "2026-08-17",
+        "code": "688035",
+        "hit_count": 5
+      }
+    ]
+  },
+  "count_mismatches": {
+    "count": 0,
+    "examples": []
+  },
+  "scan_intervals_seconds": {
+    "n": 772,
+    "median": 132.2,
+    "max": 425.3,
+    "over_300": 3
+  },
+  "sqlite_settings": {
+    "journal_mode": "delete",
+    "foreign_keys": 0,
+    "busy_timeout": 5000
+  }
+}

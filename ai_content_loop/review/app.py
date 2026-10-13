@@ -19,6 +19,7 @@ from flask import (
 
 from ai_content_loop.config import load_config
 from ai_content_loop.db import ContentStore
+from ai_content_loop.editorial.reader_feedback import evaluate_reader_feedback
 from ai_content_loop.review.auth import (
     LoginLimiter,
     auth,
@@ -36,6 +37,7 @@ from ai_content_loop.review.repository import (
     WechatDraftResultUnknown,
 )
 from ai_content_loop.visuals.assets import AssetPublicationError
+from ai_content_loop.visuals.minimax_image import client_from_env
 from ai_content_loop.visuals.pipeline import generate_visual_assets
 from ai_content_loop.visuals.renderer import VisualRenderError
 from ai_content_loop.visuals.templates import TEMPLATES
@@ -167,6 +169,10 @@ def create_app(test_config: dict | None = None) -> Flask:
             ),
         )
     app.extensions["wechat_client"] = wechat_client
+    minimax_image_client = app.config.get("MINIMAX_IMAGE_CLIENT")
+    if minimax_image_client is None and test_config is None:
+        minimax_image_client = client_from_env(os.environ)
+    app.extensions["minimax_image_client"] = minimax_image_client
     app.register_blueprint(auth)
 
     @app.errorhandler(ArticleNotFound)
@@ -252,12 +258,53 @@ def create_app(test_config: dict | None = None) -> Flask:
         payload = loaded["payload"]
         if not isinstance(payload, dict):
             raise InvalidArticle("stored payload must be an object")
+        references = repository.asset_references(value["article_id"])
+        body_images = [
+            (
+                url_for(
+                    "article_asset",
+                    article_id=value["article_id"],
+                    asset_id=asset_id,
+                    revision=reference["revision"],
+                ),
+                f"正文配图 {index}",
+            )
+            for index, (asset_id, reference) in enumerate(
+                (
+                    item
+                    for item in sorted(references.items())
+                    if item[0].startswith("body-")
+                ),
+                start=1,
+            )
+        ]
         return jsonify(
             html=render_rich_article(
                 payload.get("article_layout"),
                 fallback_title=payload.get("master_title"),
                 fallback_markdown=payload.get("master_markdown"),
+                body_images=body_images,
             )
+        )
+
+    @app.post("/api/editorial-feedback")
+    @login_required
+    def editorial_feedback():
+        require_csrf()
+        value = request.get_json(silent=True)
+        if not isinstance(value, dict):
+            return jsonify(error="invalid_request"), 400
+        title = value.get("title")
+        markdown = value.get("markdown")
+        if (
+            not isinstance(title, str)
+            or not isinstance(markdown, str)
+            or len(title) > 200_000
+            or len(markdown) > 200_000
+        ):
+            return jsonify(error="invalid_request"), 400
+        return jsonify(
+            reader_feedback=evaluate_reader_feedback(title, markdown)
         )
 
     @app.get("/api/articles")
@@ -272,6 +319,14 @@ def create_app(test_config: dict | None = None) -> Flask:
     @login_required
     def get_article(article_id: str):
         value = repository.load_article(article_id)
+        payload = value.get("payload")
+        if not isinstance(payload, dict):
+            raise InvalidArticle("stored payload must be an object")
+        value["reader_feedback"] = evaluate_reader_feedback(
+            str(payload.get("master_title") or ""),
+            str(payload.get("master_markdown") or ""),
+        )
+        value["gpt_polish"] = repository.gpt_polish_status(article_id)
         current = repository.wechat_draft_status(article_id)
         if current is not None and current["status"] == "success":
             value["wechat_draft"] = {
@@ -314,6 +369,48 @@ def create_app(test_config: dict | None = None) -> Flask:
                 value["version"],
                 operation="edit",
             )
+        )
+
+    @app.post("/api/articles/<article_id>/gpt-polish")
+    @login_required
+    def request_gpt_polish(article_id: str):
+        require_csrf()
+        value = request.get_json(silent=True)
+        if not isinstance(value, dict) or not isinstance(value.get("version"), str):
+            return jsonify(error="invalid_request"), 400
+        return jsonify(
+            gpt_polish=repository.request_gpt_polish(
+                article_id, value["version"]
+            )
+        )
+
+    @app.get("/api/articles/<article_id>/gpt-polish")
+    @login_required
+    def gpt_polish_status(article_id: str):
+        return jsonify(gpt_polish=repository.gpt_polish_status(article_id))
+
+    @app.post("/api/articles/<article_id>/gpt-polish/<job_id>/apply")
+    @login_required
+    def apply_gpt_polish(article_id: str, job_id: str):
+        require_csrf()
+        value = request.get_json(silent=True)
+        if not isinstance(value, dict) or not isinstance(value.get("version"), str):
+            return jsonify(error="invalid_request"), 400
+        return jsonify(
+            repository.apply_gpt_polish(
+                article_id, job_id, value["version"]
+            )
+        )
+
+    @app.post("/api/articles/<article_id>/gpt-polish/<job_id>/discard")
+    @login_required
+    def discard_gpt_polish(article_id: str, job_id: str):
+        require_csrf()
+        value = request.get_json(silent=True)
+        if value not in ({}, None):
+            return jsonify(error="invalid_request"), 400
+        return jsonify(
+            gpt_polish=repository.discard_gpt_polish(article_id, job_id)
         )
 
     @app.get("/api/articles/<article_id>/history")
@@ -374,6 +471,7 @@ def create_app(test_config: dict | None = None) -> Flask:
                 font_path=Path(font_path),
                 template_name=template,
                 copy_index=copy_index,
+                image_client=app.extensions.get("minimax_image_client"),
             )
         except (AssetPublicationError, VisualRenderError, OSError, ValueError):
             return jsonify(error="visual_generation_failed"), 400

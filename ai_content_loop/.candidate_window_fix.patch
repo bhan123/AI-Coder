@@ -1,0 +1,50 @@
+--- a/ai_content_loop/cli.py
++++ b/ai_content_loop/cli.py
+@@ -71,7 +71,10 @@ def cmd_score(args: argparse.Namespace) -> None:
+     cfg = load_config(args.config)
+     store = ContentStore(cfg.database_path)
+     store.initialize()
+-    items = store.list_source_items(limit=cfg.daily_raw_limit)
++    items = store.list_source_items(
++        limit=cfg.daily_raw_limit,
++        llm_eligible_only=cfg.scoring_llm_limit > 0,
++    )
+     scores = score_items(items)
+     store.upsert_scores(scores)
+     print(f"keyword-scored {len(scores)} candidates")
+--- a/ai_content_loop/db.py
++++ b/ai_content_loop/db.py
+@@ -193,12 +193,31 @@ class ContentStore:
+                 ],
+             )
+ 
+-    def list_source_items(self, limit: int) -> list[SourceItem]:
++    def list_source_items(
++        self,
++        limit: int,
++        *,
++        llm_eligible_only: bool = False,
++    ) -> list[SourceItem]:
++        eligibility_filter = ""
++        if llm_eligible_only:
++            eligibility_filter = """
++                WHERE NOT EXISTS (
++                    SELECT 1 FROM publish_queue q
++                    WHERE q.dedupe_key = source_items.dedupe_key
++                )
++                AND NOT EXISTS (
++                    SELECT 1 FROM candidate_scores c
++                    WHERE c.dedupe_key = source_items.dedupe_key
++                    AND c.llm_reviewed = 1
++                )
++            """
+         with self.connect() as conn:
+             rows = conn.execute(
+-                """
++                f"""
+                 SELECT source, external_id, title, url, summary, published_at, fetched_at, raw_json
+                 FROM source_items
++                {eligibility_filter}
+                 ORDER BY fetched_at DESC
+                 LIMIT ?
+                 """,

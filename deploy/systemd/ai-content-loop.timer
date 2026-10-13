@@ -1,8 +1,8 @@
 [Unit]
-Description=Run AI content loop every day at 08:00 Asia/Shanghai
+Description=Run AI content loop every hour
 
 [Timer]
-OnCalendar=*-*-* 08:00:00 Asia/Shanghai
+OnCalendar=hourly
 Persistent=true
 Unit=ai-content-loop.service
 

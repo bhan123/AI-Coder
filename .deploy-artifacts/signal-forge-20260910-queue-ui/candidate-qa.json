@@ -1,0 +1,33 @@
+{
+  "target": "https://hermes-content-review.taild890b1.ts.net:10000/",
+  "candidate": true,
+  "browser": "Edge / Playwright; Browser plugin not available",
+  "runs": [
+    {
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "title": "Signal Forge",
+      "url": "https://hermes-content-review.taild890b1.ts.net:10000/#review-center",
+      "layout": {
+        "width": 1440,
+        "scroll": 1440
+      },
+      "errors": []
+    },
+    {
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "title": "Signal Forge",
+      "url": "https://hermes-content-review.taild890b1.ts.net:10000/#review-center",
+      "layout": {
+        "width": 390,
+        "scroll": 390
+      },
+      "errors": []
+    }
+  ]
+}

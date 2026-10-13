@@ -40,11 +40,25 @@
     <aside id="article-sidebar" class="article-sidebar">
       <div class="sidebar-heading">
         <h1>文章</h1>
+      </div>
+      <div class="sidebar-filters">
+        <input
+          id="article-search"
+          type="search"
+          placeholder="筛选标题或栏目"
+          aria-label="筛选标题或栏目"
+        >
         <select id="status-filter" aria-label="审核状态">
           <option value="">全部</option>
           <option value="needs_human_review">待审核</option>
           <option value="approved">已通过</option>
           <option value="revision_requested">已退回</option>
+        </select>
+        <select id="progress-filter" aria-label="处理进度">
+          <option value="">全部进度</option>
+          <option value="gpt_ready">GPT 待应用</option>
+          <option value="gpt_applied">GPT 已应用</option>
+          <option value="wechat_success">公众号已同步</option>
         </select>
       </div>
       <div
@@ -85,6 +99,82 @@
           class="quality-warnings"
           hidden
         ></div>
+
+        <details id="reader-feedback-panel" class="reader-feedback" open>
+          <summary>
+            <span>
+              读者体验评分
+              <small id="reader-feedback-platform">母稿</small>
+            </span>
+            <strong id="reader-feedback-summary">正在评分…</strong>
+          </summary>
+          <div class="reader-feedback-body">
+            <p class="reader-feedback-note">
+              启发式反馈，不影响审核与发布。修改当前版本后会自动重算。
+            </p>
+            <div
+              id="reader-feedback-grid"
+              class="reader-feedback-grid"
+              aria-live="polite"
+            ></div>
+          </div>
+        </details>
+
+        <section id="gpt-polish-panel" class="gpt-polish">
+          <div class="gpt-polish-header">
+            <div>
+              <strong>GPT 主编精修</strong>
+              <span id="gpt-polish-status">尚未请求</span>
+            </div>
+            <button
+              id="gpt-polish-request-button"
+              class="primary"
+              type="button"
+            >请求 GPT 精修</button>
+          </div>
+          <p id="gpt-polish-note" class="gpt-polish-note">
+            请求后由 Windows 本机 Codex 领取任务；完成后会在这里显示候选稿，人工确认前不会覆盖正文。
+          </p>
+          <div id="gpt-polish-result" class="gpt-polish-result" hidden>
+            <div class="gpt-polish-assessment">
+              <strong id="gpt-polish-summary"></strong>
+              <div
+                id="gpt-polish-score-grid"
+                class="gpt-polish-score-grid"
+              ></div>
+            </div>
+            <div>
+              <strong>主要调整</strong>
+              <ul id="gpt-polish-changes" class="gpt-polish-changes"></ul>
+            </div>
+            <details
+              id="gpt-polish-comparison"
+              class="gpt-polish-comparison"
+            >
+              <summary>查看母稿前后对照</summary>
+              <div>
+                <section>
+                  <h3>当前母稿</h3>
+                  <pre id="gpt-polish-before"></pre>
+                </section>
+                <section>
+                  <h3>GPT 候选稿</h3>
+                  <pre id="gpt-polish-after"></pre>
+                </section>
+              </div>
+            </details>
+            <div class="gpt-polish-actions">
+              <button id="gpt-polish-discard-button" type="button">
+                放弃候选
+              </button>
+              <button
+                id="gpt-polish-apply-button"
+                class="primary"
+                type="button"
+              >应用 GPT 版本</button>
+            </div>
+          </div>
+        </section>
 
         <section id="visual-panel" class="visual-panel">
           <div class="visual-card">

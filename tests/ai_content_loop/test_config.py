@@ -14,6 +14,8 @@ def test_load_config_uses_defaults_when_file_missing(tmp_path: Path):
     assert cfg.daily_raw_limit == 200
     assert cfg.daily_deep_limit == 10
     assert cfg.publish_limit == 2
+    assert cfg.scoring_llm_batch_size == 10
+    assert cfg.scoring_llm_timeout_seconds == 180
 
 
 def test_load_config_reads_toml_values(tmp_path: Path):
@@ -43,6 +45,29 @@ arxiv = 10
     assert cfg.source_limits["arxiv"] == 10
 
 
+def test_load_config_reads_named_rss_feeds(tmp_path: Path):
+    path = tmp_path / "config.toml"
+    path.write_text(
+        """
+[[rss_feeds]]
+name = "rss_sspai_ai"
+url = "https://sspai.com/feed"
+include_keywords = ["AI", "人工智能"]
+limit = 12
+category = "practical"
+""",
+        encoding="utf-8",
+    )
+
+    cfg = load_config(path)
+
+    assert len(cfg.rss_feeds) == 1
+    assert cfg.rss_feeds[0].name == "rss_sspai_ai"
+    assert cfg.rss_feeds[0].include_keywords == ("AI", "人工智能")
+    assert cfg.rss_feeds[0].limit == 12
+    assert cfg.rss_feeds[0].category == "practical"
+
+
 def test_load_config_uses_generation_defaults_when_file_missing(tmp_path: Path):
     cfg = load_config(tmp_path / "missing.toml")
     assert cfg.hermes_command == "hermes"
@@ -64,6 +89,24 @@ generation_retries = 3
     assert cfg.hermes_command == "/home/agentuser/.local/bin/hermes"
     assert cfg.generation_timeout_seconds == 420
     assert cfg.generation_retries == 3
+
+
+def test_load_config_reads_llm_scoring_batch_settings(tmp_path: Path):
+    path = tmp_path / "config.toml"
+    path.write_text(
+        """
+scoring_llm_limit = 24
+scoring_llm_batch_size = 8
+scoring_llm_timeout_seconds = 150
+""",
+        encoding="utf-8",
+    )
+
+    cfg = load_config(path)
+
+    assert cfg.scoring_llm_limit == 24
+    assert cfg.scoring_llm_batch_size == 8
+    assert cfg.scoring_llm_timeout_seconds == 150
 
 
 def test_load_config_uses_generation_defaults_when_keys_missing(tmp_path: Path):

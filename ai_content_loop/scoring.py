@@ -246,15 +246,18 @@ def score_items(items: list[SourceItem]) -> list[CandidateScore]:
 def _parse_llm_scores(raw_output: str) -> list[dict[str, Any]]:
     """解析 Hermes 输出的 JSON 数组。容错处理。"""
     decoder = json.JSONDecoder()
-    for start_char in ("[", "{"):
-        idx = raw_output.find(start_char)
-        if idx == -1:
+    for idx, start_char in enumerate(raw_output):
+        if start_char not in "[{":
             continue
         try:
             result, _ = decoder.raw_decode(raw_output, idx)
             if isinstance(result, list):
                 return result
             if isinstance(result, dict):
+                for key in ("results", "candidates", "scores"):
+                    nested = result.get(key)
+                    if isinstance(nested, list):
+                        return nested
                 return [result]
         except json.JSONDecodeError:
             continue
@@ -267,7 +270,7 @@ def llm_score_items(
     hermes_command: str,
     prompt_path: str | Path,
     timeout_seconds: int = 300,
-) -> list[dict[str, Any]]:
+) -> list[dict[str, Any]] | None:
     """调用 Hermes 对预筛后的候选进行精选打分。
 
     返回 Hermes 评分结果列表，按 total_score 降序。调用失败返回空列表。
@@ -319,20 +322,20 @@ def llm_score_items(
             f"[scoring] LLM scoring: Hermes timed out after {timeout_seconds}s",
             file=sys.stderr,
         )
-        return []
+        return None
     except (OSError, UnicodeError) as error:
         print(
             f"[scoring] LLM scoring: Hermes launch failed ({type(error).__name__})",
             file=sys.stderr,
         )
-        return []
+        return None
 
     if completed.returncode != 0:
         print(
             f"[scoring] LLM scoring: Hermes exited with code {completed.returncode}",
             file=sys.stderr,
         )
-        return []
+        return None
 
     try:
         scores = _parse_llm_scores(completed.stdout)
@@ -341,11 +344,15 @@ def llm_score_items(
             "[scoring] LLM scoring: Hermes output could not be parsed as JSON",
             file=sys.stderr,
         )
-        return []
+        return None
 
     valid_scores = [
         s for s in scores
-        if isinstance(s, dict) and s.get("dedupe_key") and s.get("recommended")
+        if (
+            isinstance(s, dict)
+            and s.get("dedupe_key")
+            and s.get("recommended") is True
+        )
     ]
     valid_scores.sort(key=lambda s: s.get("total_score", 0), reverse=True)
     if valid_scores:

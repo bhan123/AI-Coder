@@ -1,0 +1,95 @@
+# Content engine runtime config
+#
+# 这里放「怎么跑」；「写什么」在 packs/<name>/ 里。
+# 相对路径都相对本文件所在目录解析。
+
+# 使用哪个 content pack。命令行 --pack 可覆盖。
+pack_dir = "packs/ai-news"
+
+database_path = "data/content_engine.sqlite3"
+output_dir = "out"
+
+# 每轮最多摄入多少条原始条目
+daily_raw_limit = 200
+daily_deep_limit = 10
+
+# 每轮最多入队几篇待写文章。注意这是「每次运行」，不是「每天」——
+# 调度频率在 deploy/systemd/*.timer 里，两者要一起看。
+publish_limit = 2
+
+# 混合打分：关键词预筛后交给 LLM 精选的候选数（0 = 纯关键词，不调用 LLM）
+scoring_llm_limit = 50
+# 每次 LLM 评分的候选数。小批次可避免单次提示词过长导致整轮超时。
+scoring_llm_batch_size = 10
+# 单个评分批次最长等待时间；某批失败不会抹掉此前成功的推荐。
+scoring_llm_timeout_seconds = 180
+
+# 深度研究：是否抓取源内容（GitHub README、HN 评论等）增强证据包
+deep_research_enabled = false
+
+hermes_command = "hermes"
+generation_timeout_seconds = 600
+generation_retries = 1
+
+# 配图字体。中文封面必须用带 CJK 字形的字体，否则渲染会因缺字报错。
+# visual_font_path = "fonts/NotoSansCJK-Regular.ttc"
+# 本地渲染刻意串行，不要改。
+visual_render_concurrency = 1
+
+# 远端生图的 API Key 只放在 root 可读的 image.env 里，绝不写进本文件。
+producthunt_token = ""
+
+official_rss_feeds = [
+  "https://openai.com/news/rss.xml",
+  "https://blog.google/technology/ai/rss/",
+]
+
+[source_limits]
+github = 12
+hackernews = 8
+arxiv = 0
+modelscope = 0
+producthunt = 20
+official_rss = 10
+
+# 面向普通读者的实用类源。宽口径的源用 include_keywords 过滤，
+# 垂直源不需要。LLM 精选层仍是最后一道关。
+[[rss_feeds]]
+name = "rss_appinn_ai"
+url = "https://www.appinn.com/feed/"
+include_keywords = ["AI", "人工智能", "ChatGPT", "Claude", "大模型", "智能体"]
+limit = 12
+category = "practical"
+
+[[rss_feeds]]
+name = "rss_sspai_ai"
+url = "https://sspai.com/feed"
+include_keywords = ["AI", "人工智能", "ChatGPT", "Claude", "大模型", "智能体"]
+limit = 12
+category = "practical"
+
+[[rss_feeds]]
+name = "rss_ifanr_ai"
+url = "https://www.ifanr.com/feed"
+include_keywords = ["AI", "人工智能", "ChatGPT", "Claude", "大模型", "智能体"]
+limit = 12
+category = "practical"
+
+[[rss_feeds]]
+name = "rss_zapier_ai"
+url = "https://zapier.com/blog/feeds/latest/"
+include_keywords = ["AI", "ChatGPT", "Claude", "automation", "agent"]
+limit = 12
+category = "practical"
+
+[[rss_feeds]]
+name = "rss_techcrunch_ai"
+url = "https://techcrunch.com/category/artificial-intelligence/feed/"
+limit = 12
+category = "news"
+
+[[rss_feeds]]
+name = "rss_verge_ai"
+url = "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml"
+limit = 12
+category = "news"

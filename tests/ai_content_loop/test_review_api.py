@@ -9,6 +9,7 @@ from werkzeug.security import generate_password_hash
 from ai_content_loop.db import ContentStore
 from ai_content_loop.editorial.schema import ARTICLE_THEMES, article_id_for
 from ai_content_loop.generation import validate_generation_payload
+from ai_content_loop.gpt_polish import AUDITS, DIMENSIONS
 from ai_content_loop.models import SourceItem
 from ai_content_loop.review.app import create_app
 from ai_content_loop.visuals.pipeline import insert_body_asset_marker
@@ -191,6 +192,291 @@ def test_article_api_round_trip(review_app):
 
     assert response.status_code == 200
     assert response.get_json()["payload"]["master_title"] == "浏览器里修改的标题"
+
+
+def test_article_api_exposes_advisory_reader_feedback(review_app):
+    client = review_app.test_client()
+    login(client)
+    article_id = client.get("/api/articles").get_json()["articles"][0]["article_id"]
+
+    loaded = client.get(f"/api/articles/{article_id}").get_json()
+
+    feedback = loaded["reader_feedback"]
+    assert feedback["version"] == "reader-feedback-v1"
+    assert len(feedback["dimensions"]) == 5
+    assert feedback["priority"]["key"] in {
+        item["key"] for item in feedback["dimensions"]
+    }
+
+
+def valid_gpt_polish_proposal():
+    def scores(items):
+        return [
+            {
+                "key": key,
+                "label": label,
+                "score": 4.3,
+                "evidence": f"{label}有具体证据。",
+                "suggestion": f"继续增强{label}。",
+            }
+            for key, label in items
+        ]
+
+    body = (
+        "# 先别急着追最强模型\n\n"
+        + "一个反直觉的事实是：先把低风险流程跑通，往往比追逐参数更能提效。\n\n"
+        + "这里用普通人能理解的例子拆开说明，并给出今天就能执行的小步骤。" * 50
+        + f"\n\n来源：{SOURCE_URL}"
+    )
+    return {
+        "version": "gpt-polish-v1",
+        "master_title": "先别追最强模型：真正省时间的是这一步",
+        "master_markdown": body,
+        "platform_markdown": {
+            platform: body
+            for platform in ("wechat", "xiaohongshu", "toutiao", "zhihu")
+        },
+        "assessment": {
+            "overall": 4.3,
+            "verdict": "更值得读",
+            "summary": "开头有钩子，中段更易懂，结尾能落到行动。",
+            "dimensions": scores(DIMENSIONS),
+            "audits": scores(AUDITS),
+        },
+        "change_summary": ["重写标题和开头", "增加具体行动", "收紧结尾"],
+    }
+
+
+def test_live_reader_feedback_requires_login_csrf_and_bounded_text(review_app):
+    client = review_app.test_client()
+    path = "/api/editorial-feedback"
+    payload = {
+        "title": "短视频流水线把成本挪到了哪里",
+        "markdown": "晚上还在找素材。\n\n先用低风险任务测试，失败就不要迁移正式流程。",
+    }
+
+    assert client.post(path, json=payload).status_code == 401
+    csrf = login(client)
+    assert client.post(path, json=payload).status_code == 403
+    assert (
+        client.post(
+            path,
+            json={"title": "标题", "markdown": None},
+            headers={"X-CSRF-Token": csrf},
+        ).status_code
+        == 400
+    )
+
+    response = client.post(
+        path,
+        json=payload,
+        headers={"X-CSRF-Token": csrf},
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["reader_feedback"]["version"] == "reader-feedback-v1"
+
+
+def test_gpt_polish_api_queues_candidate_and_applies_only_after_confirmation(
+    review_app,
+):
+    client = review_app.test_client()
+    article_id = article_id_for(DEDUPE_KEY)
+
+    assert client.post(f"/api/articles/{article_id}/gpt-polish").status_code == 401
+    csrf = login(client)
+    assert client.post(
+        f"/api/articles/{article_id}/status",
+        json={"status": "revision_requested"},
+        headers={"X-CSRF-Token": csrf},
+    ).status_code == 200
+    loaded = client.get(f"/api/articles/{article_id}").get_json()
+    assert loaded["gpt_polish"] is None
+    assert client.post(
+        f"/api/articles/{article_id}/gpt-polish",
+        json={"version": loaded["version"]},
+    ).status_code == 403
+
+    queued_response = client.post(
+        f"/api/articles/{article_id}/gpt-polish",
+        json={"version": loaded["version"]},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert queued_response.status_code == 200
+    queued = queued_response.get_json()["gpt_polish"]
+    assert queued["status"] == "queued"
+    assert queued["request"]["source_url"] == SOURCE_URL
+    assert queued["request"]["rule_feedback"]["master"]["version"] == (
+        "reader-feedback-v1"
+    )
+
+    store = ContentStore(review_app.config["DATABASE_PATH"])
+    claimed = store.claim_next_gpt_polish_job("windows-codex")
+    assert claimed["job_id"] == queued["job_id"]
+    assert store.submit_gpt_polish_proposal(
+        queued["job_id"], "windows-codex", valid_gpt_polish_proposal()
+    )
+
+    ready = client.get(
+        f"/api/articles/{article_id}/gpt-polish"
+    ).get_json()["gpt_polish"]
+    assert ready["status"] == "ready"
+    assert ready["proposal"]["assessment"]["overall"] == 4.3
+    unchanged = client.get(f"/api/articles/{article_id}").get_json()
+    assert unchanged["payload"]["master_title"] == loaded["payload"]["master_title"]
+
+    applied_response = client.post(
+        f"/api/articles/{article_id}/gpt-polish/{queued['job_id']}/apply",
+        json={"version": loaded["version"]},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert applied_response.status_code == 200
+    applied = applied_response.get_json()
+    assert applied["payload"]["master_title"] == (
+        "先别追最强模型：真正省时间的是这一步"
+    )
+    assert applied["gpt_polish"]["status"] == "applied"
+    queue = {row["dedupe_key"]: row for row in store.list_publish_queue()}
+    assert queue[DEDUPE_KEY]["status"] == "needs_human_review"
+    assert client.post(
+        f"/api/articles/{article_id}/gpt-polish/{queued['job_id']}/apply",
+        json={"version": loaded["version"]},
+        headers={"X-CSRF-Token": csrf},
+    ).status_code in {404, 409}
+
+
+def test_gpt_polish_apply_accepts_markdown_lists_and_inline_emphasis(review_app):
+    client = review_app.test_client()
+    csrf = login(client)
+    article_id = article_id_for(DEDUPE_KEY)
+    loaded = client.get(f"/api/articles/{article_id}").get_json()
+    queued = client.post(
+        f"/api/articles/{article_id}/gpt-polish",
+        json={"version": loaded["version"]},
+        headers={"X-CSRF-Token": csrf},
+    ).get_json()["gpt_polish"]
+
+    proposal = valid_gpt_polish_proposal()
+    body = (
+        "# 先别急着做一个大网站\n\n"
+        "真正省时间的办法，是先从**低风险场景**验证价值。\n\n"
+        "## 一个今天就能试的判断法\n\n"
+        "- 大家是否在反复回答同一个问题？\n"
+        "- 每次比较方案都要重新翻资料？\n"
+        "- 新人总在寻找同一批链接？\n\n"
+        + "如果答案是肯定的，就先做一个内部页面，把信息收拢并交给真实同事试用。"
+        * 35
+        + f"\n\n来源：{SOURCE_URL}"
+    )
+    proposal["master_markdown"] = body
+    proposal["platform_markdown"] = {
+        platform: body
+        for platform in ("wechat", "xiaohongshu", "toutiao", "zhihu")
+    }
+    store = ContentStore(review_app.config["DATABASE_PATH"])
+    claimed = store.claim_next_gpt_polish_job("windows-codex")
+    assert claimed["job_id"] == queued["job_id"]
+    assert store.submit_gpt_polish_proposal(
+        queued["job_id"], "windows-codex", proposal
+    )
+
+    response = client.post(
+        f"/api/articles/{article_id}/gpt-polish/{queued['job_id']}/apply",
+        json={"version": loaded["version"]},
+        headers={"X-CSRF-Token": csrf},
+    )
+
+    assert response.status_code == 200
+    layout = response.get_json()["payload"]["article_layout"]
+    assert all(
+        "**" not in value and not value.lstrip().startswith(("- ", "* ", "+ "))
+        for block in layout["blocks"]
+        for value in (
+            [block.get("title", ""), block.get("deck", ""), block.get("text", "")]
+            + block.get("paragraphs", [])
+        )
+        if isinstance(value, str)
+    )
+
+
+def test_gpt_polish_apply_treats_platform_target_length_as_advisory(review_app):
+    article_id = article_id_for(DEDUPE_KEY)
+    revision = "e" * 64
+    asset_dir = Path(review_app.config["ASSET_DIR"]) / article_id / revision
+    asset_dir.mkdir(parents=True)
+    (asset_dir / "cover.jpg").write_bytes(b"cover")
+    (asset_dir / "body.png").write_bytes(b"body")
+    payload = make_payload()
+    payload["visual_assets"] = {
+        "cover": {
+            "asset_id": "cover",
+            "revision": revision,
+            "path": f"assets/{article_id}/{revision}/cover.jpg",
+            "template": "ai_done_vs_tests",
+            "copy_index": 0,
+            "ai_generated": False,
+        },
+        "body": [
+            {
+                "asset_id": "body-01",
+                "revision": revision,
+                "path": f"assets/{article_id}/{revision}/body.png",
+                "template": "ai_done_vs_tests",
+                "copy_index": 0,
+                "ai_generated": False,
+            }
+        ],
+    }
+    (Path(review_app.config["FINAL_DIR"]) / "repo.json").write_text(
+        json.dumps(insert_body_asset_marker(payload), ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    client = review_app.test_client()
+    csrf = login(client)
+    loaded = client.get(f"/api/articles/{article_id}").get_json()
+    queued = client.post(
+        f"/api/articles/{article_id}/gpt-polish",
+        json={"version": loaded["version"]},
+        headers={"X-CSRF-Token": csrf},
+    ).get_json()["gpt_polish"]
+
+    proposal = valid_gpt_polish_proposal()
+    short_xiaohongshu = (
+        "# 三步判断 AI 值不值得买\n\n"
+        + "先找重复劳动，再用低风险任务试跑，最后只看真实节省的时间。"
+        * 18
+        + f"\n\n来源：{SOURCE_URL}"
+    )
+    proposal["platform_markdown"]["xiaohongshu"] = short_xiaohongshu
+    store = ContentStore(review_app.config["DATABASE_PATH"])
+    claimed = store.claim_next_gpt_polish_job("windows-codex")
+    assert claimed["job_id"] == queued["job_id"]
+    assert store.submit_gpt_polish_proposal(
+        queued["job_id"], "windows-codex", proposal
+    )
+
+    response = client.post(
+        f"/api/articles/{article_id}/gpt-polish/{queued['job_id']}/apply",
+        json={"version": loaded["version"]},
+        headers={"X-CSRF-Token": csrf},
+    )
+
+    assert response.status_code == 200
+    applied = response.get_json()
+    assert applied["version"] != loaded["version"]
+    assert (
+        applied["payload"]["platform_markdown"]["xiaohongshu"]
+        == short_xiaohongshu
+    )
+    assert applied["gpt_polish"]["status"] == "applied"
+
+    approved = client.post(
+        f"/api/articles/{article_id}/status",
+        json={"status": "approved"},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert approved.status_code == 200
 
 
 def test_stale_save_returns_conflict(review_app):
@@ -462,6 +748,10 @@ def test_generated_press_article_can_be_approved_exported_and_is_revoked_on_edit
         'class="rich-article rich-article--press rich-article--briefing"'
         in preview.get_json()["html"]
     )
+    assert (
+        f"/api/articles/{article_id}/assets/body-01/{revision}"
+        in preview.get_json()["html"]
+    )
 
     approved = client.post(
         f"/api/articles/{article_id}/status",
@@ -503,15 +793,39 @@ def test_review_page_contains_editor_shell(review_app):
     html = client.get("/").get_data(as_text=True)
 
     assert 'id="article-list"' in html
+    assert 'id="article-search"' in html
+    assert 'id="progress-filter"' in html
     assert 'id="markdown-editor"' in html
     assert 'id="article-preview"' in html
     assert 'id="save-button"' in html
     assert 'id="history-dialog"' in html
+    assert 'id="reader-feedback-panel"' in html
+    assert 'id="reader-feedback-summary"' in html
+    assert 'id="reader-feedback-grid"' in html
+    assert 'id="gpt-polish-request-button"' in html
+    assert 'id="gpt-polish-apply-button"' in html
+    assert 'id="gpt-polish-before"' in html
+    assert 'id="gpt-polish-after"' in html
     assert 'data-platform="wechat"' in html
     assert 'data-platform="xiaohongshu"' in html
     assert 'data-platform="toutiao"' in html
     assert 'data-platform="zhihu"' in html
     assert 'href="/static/rich_article.css"' in html
+
+
+def test_review_page_exposes_live_reader_feedback_loop():
+    script = (
+        Path(__file__).parents[2]
+        / "ai_content_loop"
+        / "review"
+        / "static"
+        / "review.js"
+    ).read_text(encoding="utf-8")
+
+    assert '"/api/editorial-feedback"' in script
+    assert "renderReaderFeedback" in script
+    assert "scheduleReaderFeedback" in script
+    assert "reader-feedback-v1" in script
 
 
 def test_review_page_serves_rich_article_styles_from_own_static_origin(
@@ -580,6 +894,26 @@ def test_review_sidebar_renders_generated_date():
     assert "formatArticleDate" in script
     assert "article.generated_date" in script
     assert "article-date" in script
+
+
+def test_review_sidebar_exposes_review_gpt_and_wechat_progress(review_app):
+    client = review_app.test_client()
+    login(client)
+
+    article = client.get("/api/articles").get_json()["articles"][0]
+    script = (
+        Path(__file__).parents[2]
+        / "ai_content_loop"
+        / "review"
+        / "static"
+        / "review.js"
+    ).read_text(encoding="utf-8")
+
+    assert article["gpt_polish_status"] is None
+    assert article["wechat_draft_status"] == "not_synced"
+    assert "filterVisibleArticles" in script
+    assert "article.gpt_polish_status" in script
+    assert "article.wechat_draft_status" in script
 
 
 def test_web_edition_api_exports_only_approved_server_owned_article(
@@ -973,9 +1307,11 @@ def test_rich_preview_stays_inside_the_single_scrollable_workspace(
 
     assert 'id="preview-workspace"' in html
     assert html.index('id="preview-workspace"') < html.index('id="rich-preview-pane"')
-    assert "grid-template-rows: auto auto auto auto auto minmax(0, 1fr) auto;" in css
+    assert "height: auto;" in css
+    assert "min-height: 100%;" in css
+    assert "minmax(520px, 1fr)" in css
     assert ".preview-workspace" in css
-    assert "min-height: 420px" not in css
+    assert "min-height: 520px" in css
 
 
 def test_review_layout_keeps_rich_preview_in_scrollable_workspace():

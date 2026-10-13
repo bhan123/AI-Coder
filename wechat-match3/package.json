@@ -1,0 +1,15 @@
+{
+  "name": "wechat-match3",
+  "version": "1.0.0",
+  "description": "WeChat mini-game - layered match-3 puzzle",
+  "creator": {
+    "version": "3.8.4"
+  },
+  "type": "2d",
+  "scripts": {},
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "tsx": "^4.23.7"
+  }
+}

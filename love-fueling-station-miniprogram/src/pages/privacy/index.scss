@@ -1,0 +1,13 @@
+.privacy-page { padding-bottom: 72px; }
+.privacy-card { margin-top: 18px; padding: 22px; }
+.privacy-consent-card { border: 1px solid #ef8f7f; background: #fff4ef; }
+.privacy-consent-card .primary-button { margin-top: 18px; }
+.privacy-heading { display: block; margin-bottom: 10px; color: #2d211b; font-size: 30px; font-weight: 700; }
+.privacy-copy { color: #746a62; font-size: 26px; line-height: 1.75; }
+.privacy-actions { display: flex; flex-direction: column; gap: 14px; margin-top: 24px; }
+.privacy-request { padding: 20px; color: #5f5149; font-size: 26px; line-height: 1.7; }
+.privacy-request text { display: block; }
+.privacy-request .outline-button { margin-top: 14px; }
+.danger-button { min-height: 88px; color: #b23f31; border: 1px solid #d9a49d; border-radius: 16px; background: #fff5f2; font-size: 27px; }
+.privacy-pending { padding: 18px; color: #9b4d40; border-radius: 14px; background: #fff0eb; font-size: 25px; line-height: 1.65; }
+.privacy-footnote { display: block; margin-top: 26px; color: #958981; font-size: 23px; line-height: 1.7; }

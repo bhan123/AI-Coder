@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>板块详情</title></head>
+<body>
+  <script>
+    const name = new URL(location.href).searchParams.get('name');
+    location.replace(name ? `/?board=${encodeURIComponent(name)}` : '/');
+  </script>
+</body>
+</html>

@@ -5,12 +5,16 @@ import re
 from urllib.parse import urlparse
 
 from ai_content_loop.editorial.schema import ARTICLE_STRUCTURES, ARTICLE_THEMES
+from ai_content_loop.editorial.layout_completion import (
+    complete_layout_for_rendering,
+)
 
 
 _FIELDS = {
     "hero": {"type", "title", "deck"},
     "lead": {"type", "text"},
     "key_judgment": {"type", "text"},
+    "prose": {"type", "paragraphs"},
     "section": {"type", "heading", "paragraphs"},
     "workflow_compare": {"type", "before", "after", "remaining_friction"},
     "quote": {"type", "text", "attribution"},
@@ -18,8 +22,12 @@ _FIELDS = {
     "source_note": {"type", "url", "attribution"},
 }
 _BASE = "box-sizing:border-box;max-width:100%;word-wrap:break-word;"
-_SECTION = _BASE + "margin:24px 0;color:#242424;font-size:16px;line-height:1.8;"
+_SECTION = _BASE + "margin:32px 0;color:#242424;font-size:16px;line-height:1.8;"
 _PARAGRAPH = _BASE + "margin:12px 0;color:#242424;font-size:16px;line-height:1.8;"
+_BODY_PARAGRAPH = _BASE + "margin:0 0 18px;color:#242424;font-size:16px;line-height:1.9;"
+_KAMA_SECTION = _BASE + "margin:30px 0;color:#242424;font-size:15px;line-height:1.8;"
+_KAMA_PARAGRAPH = _BASE + "margin:8px 0;color:#242424;font-size:15px;line-height:1.8;"
+_KAMA_BODY_PARAGRAPH = _BASE + "margin:0 0 14px;color:#242424;font-size:15px;line-height:1.8;"
 
 
 def _text(value: object) -> bool:
@@ -78,7 +86,61 @@ def _image(url: str) -> str:
     )
 
 
-def _render_block(block: dict[str, object]) -> str:
+def _render_kama_block(block: dict[str, object]) -> str:
+    kind = block["type"]
+    if kind == "hero":
+        return (
+            f'<section style="{_KAMA_SECTION}margin-top:0;">'
+            f'<h1 style="{_BASE}margin:0 0 12px;color:#171717;font-size:25px;line-height:1.4;">{escape(str(block["title"]))}</h1>'
+            f'<p style="{_KAMA_PARAGRAPH}color:#666;">{escape(str(block["deck"]))}</p></section>'
+        )
+    if kind == "lead":
+        return f'<p style="{_KAMA_PARAGRAPH}color:#0e88eb;font-weight:600;">{escape(str(block["text"]))}</p>'
+    if kind in {"key_judgment", "callout"}:
+        return (
+            f'<p style="{_KAMA_PARAGRAPH}margin:18px 0;color:#0e88eb;font-weight:600;">'
+            f'{escape(str(block["text"]))}</p>'
+        )
+    if kind == "prose":
+        return "".join(
+            f'<p style="{_KAMA_BODY_PARAGRAPH}">{escape(str(value))}</p>'
+            for value in block["paragraphs"]
+        )
+    if kind == "section":
+        paragraphs = "".join(
+            f'<p style="{_KAMA_BODY_PARAGRAPH}">{escape(str(value))}</p>'
+            for value in block["paragraphs"]
+        )
+        return (
+            f'<section style="{_KAMA_SECTION}"><h2 style="{_BASE}margin:0 0 14px;'
+            'padding-left:10px;border-left:5px solid #0e88eb;color:#0e88eb;'
+            'font-size:18px;line-height:1.8;">'
+            f'{escape(str(block["heading"]))}</h2>{paragraphs}</section>'
+        )
+    if kind == "workflow_compare":
+        rows = (("之前", "before"), ("现在", "after"), ("仍需克服", "remaining_friction"))
+        return (
+            f'<section style="{_KAMA_SECTION}">'
+            + "".join(
+                f'<p style="{_KAMA_PARAGRAPH}"><strong style="color:#0e88eb;">{label}：</strong>{escape(str(block[key]))}</p>'
+                for label, key in rows
+            )
+            + "</section>"
+        )
+    if kind == "quote":
+        return (
+            f'<blockquote style="{_KAMA_SECTION}margin-left:0;padding:4px 18px;border-left:3px solid #0e88eb;color:#555;">'
+            f'<p style="{_KAMA_PARAGRAPH}">{escape(str(block["text"]))}</p>'
+            f'<p style="{_KAMA_PARAGRAPH}text-align:right;">— {escape(str(block["attribution"]))}</p></blockquote>'
+        )
+    if kind == "source_note":
+        return f'<p style="{_KAMA_PARAGRAPH}color:#777;font-size:13px;">来源：{escape(str(block["attribution"]))} {escape(str(block["url"]))}</p>'
+    raise ValueError("unsupported article block")
+
+
+def _render_block(block: dict[str, object], theme: str) -> str:
+    if theme == "kama":
+        return _render_kama_block(block)
     kind = block["type"]
     if kind == "hero":
         return (
@@ -95,9 +157,15 @@ def _render_block(block: dict[str, object]) -> str:
             f'<strong style="{_BASE}">{label}</strong>'
             f'<p style="{_PARAGRAPH}">{escape(str(block["text"]))}</p></section>'
         )
+    if kind == "prose":
+        paragraphs = "".join(
+            f'<p style="{_BODY_PARAGRAPH}">{escape(str(value))}</p>'
+            for value in block["paragraphs"]
+        )
+        return f'<section style="{_SECTION}">{paragraphs}</section>'
     if kind == "section":
         paragraphs = "".join(
-            f'<p style="{_PARAGRAPH}">{escape(str(value))}</p>'
+            f'<p style="{_BODY_PARAGRAPH}">{escape(str(value))}</p>'
             for value in block["paragraphs"]
         )
         return (
@@ -152,16 +220,34 @@ def render_wechat_article(
     *,
     fallback_title: object,
     fallback_markdown: object,
-    body_image_url: str,
+    body_image_url: str | None = None,
+    body_image_urls: list[str] | tuple[str, ...] | None = None,
 ) -> str:
     """Render escaped, inline-styled HTML accepted by WeChat drafts."""
 
-    safe_image = _image(body_image_url)
+    if body_image_urls is None:
+        body_image_urls = [body_image_url] if body_image_url is not None else []
+    if not body_image_urls or len(body_image_urls) > 3:
+        raise ValueError("one to three body image URLs are required")
+    safe_images = [_image(url) for url in body_image_urls]
     layout = _trusted_layout(article_layout)
     if layout is None or not layout["blocks"]:
         content = _fallback(fallback_title, fallback_markdown)
-        return f'<section style="{_BASE}padding:0 4px;">{content}{safe_image}</section>'
-    rendered = [_render_block(block) for block in layout["blocks"]]
-    insert_at = min(2, len(rendered))
-    rendered.insert(insert_at, safe_image)
+        return (
+            f'<section style="{_BASE}padding:0 4px;">'
+            f'{content}{"".join(safe_images)}</section>'
+        )
+    layout = complete_layout_for_rendering(
+        layout,
+        title=fallback_title,
+        markdown=fallback_markdown,
+    )
+    theme = str(layout["theme"])
+    rendered = [_render_block(block, theme) for block in layout["blocks"]]
+    positions = [
+        round(len(rendered) * (index + 1) / (len(safe_images) + 1))
+        for index in range(len(safe_images))
+    ]
+    for position, safe_image in reversed(tuple(zip(positions, safe_images))):
+        rendered.insert(position, safe_image)
     return f'<section style="{_BASE}padding:0 4px;">{"".join(rendered)}</section>'

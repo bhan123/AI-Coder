@@ -1,0 +1,16 @@
+[Unit]
+Description=Restore public Tailscale Funnel routes
+After=network-online.target tailscaled.service
+Wants=network-online.target tailscaled.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/tailscale funnel --bg --https=10000 --yes http://127.0.0.1:8011
+ExecStart=/usr/bin/tailscale funnel --bg --https=443 --yes http://127.0.0.1:8765
+ExecStart=/usr/bin/tailscale funnel --bg --https=8443 --yes http://127.0.0.1:8000
+RemainAfterExit=yes
+Restart=on-failure
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target

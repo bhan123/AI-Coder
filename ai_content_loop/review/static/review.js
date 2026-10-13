@@ -8,17 +8,24 @@ const state = {
   articleStatus: "untracked",
   previewRequest: 0,
   richPreviewRequest: 0,
+  readerFeedbackRequest: 0,
+  readerFeedbackTimer: null,
   visualCopyIndex: 0,
   visualRequestActive: false,
   webEditionRequestActive: false,
   wechatDraftRequestActive: false,
   wechatDraftStatus: "not_configured",
   articleListRefreshActive: false,
+  gptPolish: null,
+  gptPolishTimer: null,
+  gptPolishRequestActive: false,
 };
 
 const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
 const articleList = document.querySelector("#article-list");
+const articleSearch = document.querySelector("#article-search");
 const statusFilter = document.querySelector("#status-filter");
+const progressFilter = document.querySelector("#progress-filter");
 const emptyState = document.querySelector("#empty-state");
 const editorShell = document.querySelector("#editor-shell");
 const titleInput = document.querySelector("#article-title");
@@ -26,6 +33,13 @@ const columnInput = document.querySelector("#article-column");
 const markdownEditor = document.querySelector("#markdown-editor");
 const articlePreview = document.querySelector("#article-preview");
 const warnings = document.querySelector("#quality-warnings");
+const readerFeedbackPlatform = document.querySelector(
+  "#reader-feedback-platform",
+);
+const readerFeedbackSummary = document.querySelector(
+  "#reader-feedback-summary",
+);
+const readerFeedbackGrid = document.querySelector("#reader-feedback-grid");
 const notification = document.querySelector("#notification");
 const historyDialog = document.querySelector("#history-dialog");
 const historyList = document.querySelector("#history-list");
@@ -51,12 +65,37 @@ const exportWebEditionButton = document.querySelector(
 const webEditionLinks = document.querySelector("#web-edition-links");
 const wechatDraftButton = document.querySelector("#wechat-draft-button");
 const wechatDraftStatus = document.querySelector("#wechat-draft-status");
+const gptPolishStatus = document.querySelector("#gpt-polish-status");
+const gptPolishNote = document.querySelector("#gpt-polish-note");
+const gptPolishResult = document.querySelector("#gpt-polish-result");
+const gptPolishSummary = document.querySelector("#gpt-polish-summary");
+const gptPolishScoreGrid = document.querySelector("#gpt-polish-score-grid");
+const gptPolishChanges = document.querySelector("#gpt-polish-changes");
+const gptPolishBefore = document.querySelector("#gpt-polish-before");
+const gptPolishAfter = document.querySelector("#gpt-polish-after");
+const gptPolishRequestButton = document.querySelector(
+  "#gpt-polish-request-button",
+);
+const gptPolishApplyButton = document.querySelector(
+  "#gpt-polish-apply-button",
+);
+const gptPolishDiscardButton = document.querySelector(
+  "#gpt-polish-discard-button",
+);
 
 const statusLabels = {
   needs_human_review: "待审核",
   approved: "已通过",
   revision_requested: "已退回",
   untracked: "未入队",
+};
+
+const platformLabels = {
+  master: "母稿",
+  wechat: "公众号",
+  xiaohongshu: "小红书",
+  toutiao: "今日头条",
+  zhihu: "知乎",
 };
 
 const warningLabels = {
@@ -193,6 +232,129 @@ function updateWechatDraftControls() {
   );
 }
 
+const gptPolishStatusLabels = {
+  queued: "等待本机 GPT 领取",
+  claimed: "GPT 正在精修",
+  ready: "候选稿待确认",
+  applied: "候选稿已应用",
+  discarded: "候选稿已放弃",
+  failed: "精修失败，可重新请求",
+};
+
+function updateGptPolishControls() {
+  const status = state.gptPolish?.status;
+  const active = ["queued", "claimed", "ready"].includes(status);
+  const matchingVersion = (
+    !state.gptPolish
+    || state.gptPolish.base_version === state.version
+  );
+  gptPolishRequestButton.disabled = (
+    !state.articleId
+    || state.dirty
+    || state.gptPolishRequestActive
+    || (active && matchingVersion)
+  );
+  gptPolishApplyButton.disabled = (
+    status !== "ready"
+    || !matchingVersion
+    || state.dirty
+    || state.gptPolishRequestActive
+  );
+  gptPolishDiscardButton.disabled = (
+    status !== "ready" || state.gptPolishRequestActive
+  );
+}
+
+function stopGptPolishPolling() {
+  window.clearTimeout(state.gptPolishTimer);
+  state.gptPolishTimer = null;
+}
+
+function scheduleGptPolishPolling() {
+  stopGptPolishPolling();
+  if (!["queued", "claimed"].includes(state.gptPolish?.status)) return;
+  const articleId = state.articleId;
+  state.gptPolishTimer = window.setTimeout(async () => {
+    try {
+      const value = await api(
+        `/api/articles/${encodeURIComponent(articleId)}/gpt-polish`,
+      );
+      if (articleId !== state.articleId) return;
+      renderGptPolish(value.gpt_polish);
+    } catch (error) {
+      if (articleId === state.articleId) notify(error.message, "error");
+    }
+  }, 4000);
+}
+
+function renderGptPolish(job) {
+  state.gptPolish = job || null;
+  gptPolishResult.hidden = true;
+  gptPolishScoreGrid.replaceChildren();
+  gptPolishChanges.replaceChildren();
+  if (!job) {
+    gptPolishStatus.textContent = "尚未请求";
+    gptPolishNote.textContent = (
+      "请求后由 Windows 本机 Codex 领取任务；完成后会在这里显示候选稿，人工确认前不会覆盖正文。"
+    );
+    updateGptPolishControls();
+    stopGptPolishPolling();
+    return;
+  }
+  const matchingVersion = job.base_version === state.version;
+  const terminal = ["applied", "discarded", "failed"].includes(job.status);
+  gptPolishStatus.textContent = (matchingVersion || terminal)
+    ? (gptPolishStatusLabels[job.status] || job.status)
+    : "文章已变化，旧候选稿不可应用";
+  if (job.status === "queued") {
+    gptPolishNote.textContent = (
+      "任务已进入队列。请在 Windows Codex 中运行 gpt-polish-article Skill（可直接说“处理待精修文章”）。"
+    );
+  } else if (job.status === "claimed") {
+    gptPolishNote.textContent = "本机 GPT 已领取任务，正在阅读、评分并改写。";
+  } else if (job.status === "failed") {
+    gptPolishNote.textContent = `本次处理失败：${job.error || "未知错误"}`;
+  } else if (job.status === "ready") {
+    gptPolishNote.textContent = matchingVersion
+      ? "候选稿已返回。请检查评分、调整摘要和前后对照，再决定是否应用。"
+      : "候选稿基于旧版本生成。请重新请求，避免覆盖较新的人工修改。";
+  } else {
+    gptPolishNote.textContent = "本次精修任务已经结束。";
+  }
+  const proposal = job.proposal;
+  if (job.status === "ready" && proposal?.assessment) {
+    const assessment = proposal.assessment;
+    gptPolishResult.hidden = false;
+    gptPolishSummary.textContent = (
+      `${assessment.overall}/5 · ${assessment.verdict} · ${assessment.summary}`
+    );
+    const scores = [
+      ...(assessment.dimensions || []),
+      ...(assessment.audits || []),
+    ];
+    for (const item of scores) {
+      const card = document.createElement("div");
+      card.className = "gpt-polish-score";
+      const label = document.createElement("span");
+      label.textContent = item.label;
+      const score = document.createElement("strong");
+      score.textContent = `${item.score}/5`;
+      card.title = `${item.evidence}\n建议：${item.suggestion}`;
+      card.append(label, score);
+      gptPolishScoreGrid.append(card);
+    }
+    for (const change of proposal.change_summary || []) {
+      const item = document.createElement("li");
+      item.textContent = change;
+      gptPolishChanges.append(item);
+    }
+    gptPolishBefore.textContent = job.request?.master_markdown || "";
+    gptPolishAfter.textContent = proposal.master_markdown || "";
+  }
+  updateGptPolishControls();
+  scheduleGptPolishPolling();
+}
+
 function setArticleStatus(status) {
   state.articleStatus = status;
   updateWebEditionControls();
@@ -267,14 +429,15 @@ function schedulePreview() {
 
 function renderArticleList() {
   articleList.replaceChildren();
-  if (state.articles.length === 0) {
+  const visibleArticles = filterVisibleArticles();
+  if (visibleArticles.length === 0) {
     const empty = document.createElement("p");
     empty.className = "muted sidebar-empty";
     empty.textContent = "当前筛选条件下没有文章。";
     articleList.append(empty);
     return;
   }
-  for (const article of state.articles) {
+  for (const article of visibleArticles) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "article-item";
@@ -288,10 +451,22 @@ function renderArticleList() {
     const meta = document.createElement("span");
     const status = statusLabels[article.status] || article.status;
     meta.textContent = `${article.column} · ${status}`;
+    const progress = document.createElement("span");
+    progress.className = "article-progress";
+    const progressLabels = [];
+    if (article.gpt_polish_status === "ready") {
+      progressLabels.push("GPT 待应用");
+    } else if (article.gpt_polish_status === "applied") {
+      progressLabels.push("GPT 已应用");
+    }
+    if (article.wechat_draft_status === "success") {
+      progressLabels.push("公众号已同步");
+    }
+    progress.textContent = progressLabels.join(" · ") || "尚未完成后续处理";
     const date = document.createElement("span");
     date.className = "article-date";
     date.textContent = `生成日期：${formatArticleDate(article)}`;
-    button.append(title, meta, date);
+    button.append(title, meta, progress, date);
     button.addEventListener("click", () => openArticle(article.article_id));
     articleList.append(button);
   }
@@ -305,6 +480,112 @@ async function loadArticles(status = "") {
   if (!state.articleId && state.articles.length > 0) {
     await openArticle(state.articles[0].article_id);
   }
+}
+
+function filterVisibleArticles() {
+  const query = articleSearch.value.trim().toLocaleLowerCase("zh-CN");
+  const progress = progressFilter.value;
+  return state.articles.filter((article) => {
+    const searchable = `${article.title} ${article.column}`.toLocaleLowerCase(
+      "zh-CN",
+    );
+    if (query && !searchable.includes(query)) return false;
+    if (progress === "gpt_ready") {
+      return article.gpt_polish_status === "ready";
+    }
+    if (progress === "gpt_applied") {
+      return article.gpt_polish_status === "applied";
+    }
+    if (progress === "wechat_success") {
+      return article.wechat_draft_status === "success";
+    }
+    return true;
+  });
+}
+
+function feedbackTone(score) {
+  if (score >= 4) return "strong";
+  if (score < 3) return "weak";
+  return "watch";
+}
+
+function renderReaderFeedback(feedback, platform = state.platform) {
+  readerFeedbackGrid.replaceChildren();
+  readerFeedbackPlatform.textContent = platformLabels[platform] || platform;
+  if (
+    !feedback
+    || feedback.version !== "reader-feedback-v1"
+    || !Array.isArray(feedback.dimensions)
+  ) {
+    readerFeedbackSummary.textContent = "暂时无法评分";
+    return;
+  }
+  readerFeedbackSummary.textContent = (
+    `${feedback.overall}/5 · ${feedback.verdict} · ${feedback.summary}`
+  );
+  for (const item of feedback.dimensions) {
+    const card = document.createElement("section");
+    card.className = `feedback-card ${feedbackTone(item.score)}`;
+    card.dataset.feedbackKey = item.key;
+
+    const header = document.createElement("div");
+    header.className = "feedback-card-header";
+    const label = document.createElement("strong");
+    label.textContent = item.label;
+    const score = document.createElement("span");
+    score.className = "feedback-score";
+    score.textContent = `${item.score}/5`;
+    header.append(label, score);
+
+    const meter = document.createElement("div");
+    meter.className = "feedback-meter";
+    const fill = document.createElement("span");
+    const boundedScore = Math.max(0, Math.min(5, Number(item.score) || 0));
+    fill.style.width = `${boundedScore * 20}%`;
+    meter.append(fill);
+
+    const evidence = document.createElement("p");
+    evidence.className = "feedback-evidence";
+    evidence.textContent = item.evidence;
+    const suggestion = document.createElement("p");
+    suggestion.className = "feedback-suggestion";
+    suggestion.textContent = `建议：${item.suggestion}`;
+    card.append(header, meter, evidence, suggestion);
+    readerFeedbackGrid.append(card);
+  }
+}
+
+function scheduleReaderFeedback(delay = 320) {
+  if (!state.payload) return;
+  const requestId = ++state.readerFeedbackRequest;
+  const articleId = state.articleId;
+  const platform = state.platform;
+  const title = titleInput.value;
+  const markdown = markdownEditor.value;
+  window.clearTimeout(state.readerFeedbackTimer);
+  readerFeedbackPlatform.textContent = platformLabels[platform] || platform;
+  readerFeedbackSummary.textContent = "正在重新评分…";
+  state.readerFeedbackTimer = window.setTimeout(async () => {
+    try {
+      const value = await api("/api/editorial-feedback", {
+        method: "POST",
+        body: JSON.stringify({title, markdown}),
+      });
+      if (
+        requestId !== state.readerFeedbackRequest
+        || articleId !== state.articleId
+        || platform !== state.platform
+      ) {
+        return;
+      }
+      renderReaderFeedback(value.reader_feedback, platform);
+    } catch (error) {
+      if (requestId === state.readerFeedbackRequest) {
+        readerFeedbackSummary.textContent = "评分暂时不可用";
+        notify(error.message, "error");
+      }
+    }
+  }, delay);
 }
 
 async function refreshArticlesOnFocus() {
@@ -337,6 +618,7 @@ async function openArticle(articleId) {
     return;
   }
   invalidateRichPreview();
+  stopGptPolishPolling();
   try {
     const value = await api(
       `/api/articles/${encodeURIComponent(articleId)}`,
@@ -346,6 +628,7 @@ async function openArticle(articleId) {
     state.version = value.version;
     state.platform = "wechat";
     state.dirty = false;
+    state.gptPolishRequestActive = false;
     state.wechatDraftStatus = value.wechat_draft?.status || "not_synced";
     const article = state.articles.find(
       (item) => item.article_id === articleId,
@@ -357,6 +640,8 @@ async function openArticle(articleId) {
     emptyState.hidden = true;
     editorShell.hidden = false;
     renderWarnings(value.warnings);
+    renderReaderFeedback(value.reader_feedback, "master");
+    renderGptPolish(value.gpt_polish);
     renderVisuals();
     selectPlatform("wechat", false);
     renderArticleList();
@@ -380,6 +665,7 @@ function selectPlatform(platform, preserveCurrent = true) {
     );
   }
   schedulePreview();
+  scheduleReaderFeedback();
 }
 
 async function saveArticle() {
@@ -399,12 +685,14 @@ async function saveArticle() {
     state.payload = value.payload;
     state.version = value.version;
     state.dirty = false;
+    renderGptPolish(state.gptPolish);
     state.wechatDraftStatus = "not_synced";
     setArticleStatus("needs_human_review");
     clearWebEditionLinks();
     invalidateRichPreview();
     renderWarnings(value.warnings);
     renderVisuals();
+    scheduleReaderFeedback(0);
     notify("修改已保存，并创建了历史版本。");
     await loadArticles(statusFilter.value);
   } catch (error) {
@@ -445,6 +733,110 @@ async function setStatus(status) {
   }
 }
 
+async function requestGptPolish() {
+  if (!state.articleId || state.gptPolishRequestActive) return;
+  if (state.dirty) {
+    notify("请先保存当前修改，再请求 GPT 精修。", "error");
+    return;
+  }
+  state.gptPolishRequestActive = true;
+  updateGptPolishControls();
+  try {
+    const value = await api(
+      `/api/articles/${encodeURIComponent(state.articleId)}/gpt-polish`,
+      {
+        method: "POST",
+        body: JSON.stringify({version: state.version}),
+      },
+    );
+    renderGptPolish(value.gpt_polish);
+    notify("GPT 精修任务已创建，请在 Windows Codex 中处理。", "success");
+  } catch (error) {
+    notify(error.message, "error");
+  } finally {
+    state.gptPolishRequestActive = false;
+    updateGptPolishControls();
+  }
+}
+
+async function applyGptPolish() {
+  const job = state.gptPolish;
+  if (!state.articleId || job?.status !== "ready") return;
+  if (!window.confirm("应用后会保存为新历史版本，并重新进入人工审核。确定继续吗？")) {
+    return;
+  }
+  state.gptPolishRequestActive = true;
+  updateGptPolishControls();
+  try {
+    const previousVersion = state.version;
+    const previousTitle = state.payload.master_title;
+    const value = await api(
+      `/api/articles/${encodeURIComponent(state.articleId)}/gpt-polish/${
+        encodeURIComponent(job.job_id)
+      }/apply`,
+      {
+        method: "POST",
+        body: JSON.stringify({version: state.version}),
+      },
+    );
+    if (
+      value.version === previousVersion
+      || value.payload?.master_title !== job.proposal?.master_title
+    ) {
+      throw new Error("服务器没有确认 GPT 候选稿已写入，请刷新后重试。");
+    }
+    state.payload = value.payload;
+    state.version = value.version;
+    state.dirty = false;
+    state.wechatDraftStatus = "not_synced";
+    titleInput.value = state.payload.master_title;
+    columnInput.value = state.payload.column;
+    markdownEditor.value = bodyFor(state.platform);
+    setArticleStatus("needs_human_review");
+    clearWebEditionLinks();
+    invalidateRichPreview();
+    renderWarnings(value.warnings);
+    renderVisuals();
+    renderGptPolish(value.gpt_polish);
+    schedulePreview();
+    scheduleReaderFeedback(0);
+    await loadArticles(statusFilter.value);
+    notify(
+      previousTitle === state.payload.master_title
+        ? "GPT 候选稿已写入新版本，并重新进入人工审核。"
+        : `GPT 候选稿已应用：标题已更新为“${state.payload.master_title}”。`,
+      "success",
+    );
+  } catch (error) {
+    notify(error.message, "error");
+  } finally {
+    state.gptPolishRequestActive = false;
+    updateGptPolishControls();
+  }
+}
+
+async function discardGptPolish() {
+  const job = state.gptPolish;
+  if (!state.articleId || job?.status !== "ready") return;
+  state.gptPolishRequestActive = true;
+  updateGptPolishControls();
+  try {
+    const value = await api(
+      `/api/articles/${encodeURIComponent(state.articleId)}/gpt-polish/${
+        encodeURIComponent(job.job_id)
+      }/discard`,
+      {method: "POST", body: JSON.stringify({})},
+    );
+    renderGptPolish(value.gpt_polish);
+    notify("候选稿已放弃，原文未改变。", "success");
+  } catch (error) {
+    notify(error.message, "error");
+  } finally {
+    state.gptPolishRequestActive = false;
+    updateGptPolishControls();
+  }
+}
+
 async function rerenderVisuals({copyIndex = state.visualCopyIndex} = {}) {
   if (!state.articleId || state.visualRequestActive) return;
   if (state.dirty) {
@@ -480,6 +872,7 @@ async function rerenderVisuals({copyIndex = state.visualCopyIndex} = {}) {
     renderWarnings(value.warnings);
     renderVisuals();
     schedulePreview();
+    scheduleReaderFeedback(0);
     notify("图片新版本已生成，旧版本仍在历史记录中。");
   } catch (error) {
     state.visualCopyIndex = previousCopyIndex;
@@ -554,6 +947,7 @@ async function restoreHistory(historyId) {
     renderWarnings(value.warnings);
     renderVisuals();
     schedulePreview();
+    scheduleReaderFeedback(0);
     historyDialog.close();
     notify("历史版本已恢复。");
   } catch (error) {
@@ -697,9 +1091,13 @@ for (const input of [titleInput, columnInput, markdownEditor]) {
     clearWebEditionLinks();
     updateWebEditionControls();
     updateWechatDraftControls();
+    updateGptPolishControls();
     invalidateRichPreview();
     if (input === markdownEditor) {
       schedulePreview();
+    }
+    if (input === titleInput || input === markdownEditor) {
+      scheduleReaderFeedback();
     }
   });
 }
@@ -716,6 +1114,9 @@ richPreviewButton.addEventListener("click", showRichPreview);
 richPreviewCloseButton.addEventListener("click", closeRichPreview);
 exportWebEditionButton.addEventListener("click", exportWebEdition);
 wechatDraftButton.addEventListener("click", syncWechatDraft);
+gptPolishRequestButton.addEventListener("click", requestGptPolish);
+gptPolishApplyButton.addEventListener("click", applyGptPolish);
+gptPolishDiscardButton.addEventListener("click", discardGptPolish);
 document.querySelector("#approve-button").addEventListener(
   "click",
   () => setStatus("approved"),
@@ -746,6 +1147,8 @@ statusFilter.addEventListener(
   "change",
   () => loadArticles(statusFilter.value),
 );
+articleSearch.addEventListener("input", renderArticleList);
+progressFilter.addEventListener("change", renderArticleList);
 document.querySelector("#logout-button").addEventListener(
   "click",
   async () => {

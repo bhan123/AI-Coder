@@ -21,15 +21,23 @@ from ai_content_loop.editorial.schema import (
     normalize_final_payload,
 )
 from ai_content_loop.visuals.renderer import BODY_SIZE, COVER_SIZE
+from ai_content_loop.visuals.minimax_image import (
+    MiniMaxImageError,
+    validate_image_source,
+)
 from ai_content_loop.visuals.templates import TEMPLATES
 
 
 MANIFEST_VERSION = 2
-RENDER_CONTRACT_VERSION = "original-template-renderer-v2"
+AI_MANIFEST_VERSION = 4
+RENDER_CONTRACT_VERSION = "content-aware-image-set-v4"
 SOURCE_KIND = "original_template"
+AI_SOURCE_KIND = "minimax_image_set"
 ASSET_FILENAMES = {
     "cover": "cover.jpg",
     "body-01": "body.png",
+    "body-02": "body-02.png",
+    "body-03": "body-03.png",
 }
 _ARTICLE_ID_PATTERN = re.compile(r"[0-9a-f]{24}\Z")
 _REVISION_PATTERN = re.compile(r"[0-9a-f]{64}\Z")
@@ -45,6 +53,7 @@ _MANIFEST_FIELDS = {
     "ai_generated",
     "assets",
 }
+_AI_MANIFEST_FIELDS = _MANIFEST_FIELDS | {"image_source"}
 _FILE_FIELDS = {
     "filename",
     "sha256",
@@ -62,6 +71,7 @@ _RENDER_CONTRACT_FIELDS = {
 _FILE_EXPECTATIONS = {
     "cover": ("cover.jpg", "JPEG", "image/jpeg", list(COVER_SIZE)),
     "body-01": ("body.png", "PNG", "image/png", list(BODY_SIZE)),
+    "body-02": ("body-02.png", "PNG", "image/png", list(BODY_SIZE)),
 }
 
 
@@ -88,6 +98,7 @@ def revision_for(
     selected_copy: dict[str, object],
     font_sha256: str,
     render_contract: dict[str, str],
+    image_source: dict[str, object] | None = None,
 ) -> str:
     """Return the content identity shared by publication and validation."""
 
@@ -97,6 +108,11 @@ def revision_for(
         "template": template_name,
         "copy": selected_copy,
     }
+    if image_source is not None:
+        try:
+            identity["image_source"] = validate_image_source(image_source)
+        except MiniMaxImageError:
+            raise AssetPublicationError("invalid_asset_component") from None
     return hashlib.sha256(canonical_json_bytes(identity)).hexdigest()
 
 
@@ -362,6 +378,7 @@ def manifest_for(
     font_digest: str,
     render_contract: dict[str, str],
     inspected_assets: dict[str, dict[str, object]],
+    image_source: dict[str, object] | None = None,
 ) -> dict[str, object]:
     if template_name not in TEMPLATES:
         raise AssetPublicationError("invalid_asset_component")
@@ -382,17 +399,34 @@ def manifest_for(
             "sha256": digest,
             "size": size,
         }
-    return {
-        "version": MANIFEST_VERSION,
+    trusted_image_source = None
+    if image_source is not None:
+        try:
+            trusted_image_source = validate_image_source(image_source)
+        except MiniMaxImageError:
+            raise AssetPublicationError("invalid_asset_component") from None
+    manifest = {
+        "version": (
+            AI_MANIFEST_VERSION
+            if trusted_image_source is not None
+            else MANIFEST_VERSION
+        ),
         "revision": _trusted_revision(revision),
         "article_id": _trusted_article_id(article_id),
         "template": template_name,
         "font_sha256": font_digest,
         "render_contract": render_contract,
-        "source_kind": SOURCE_KIND,
-        "ai_generated": False,
+        "source_kind": (
+            AI_SOURCE_KIND
+            if trusted_image_source is not None
+            else SOURCE_KIND
+        ),
+        "ai_generated": trusted_image_source is not None,
         "assets": files,
     }
+    if trusted_image_source is not None:
+        manifest["image_source"] = trusted_image_source
+    return manifest
 
 
 def _regular_file(path: Path) -> bool:
@@ -423,6 +457,7 @@ def validate_revision(
     copy_index: int,
     font_digest: str,
     render_contract: dict[str, str],
+    image_source: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """Validate one immutable revision, including exact hashes and sizes."""
 
@@ -445,6 +480,7 @@ def validate_revision(
         copy_index=copy_index,
         font_digest=font_digest,
         render_contract=render_contract,
+        image_source=image_source,
     )
 
 
@@ -457,6 +493,7 @@ def validate_revision_directory(
     copy_index: int,
     font_digest: str,
     render_contract: dict[str, str],
+    image_source: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """Validate a final revision or an unpublished sibling directory."""
 
@@ -470,17 +507,43 @@ def validate_revision_directory(
     if revision_dir.is_symlink() or not revision_dir.is_dir():
         raise AssetPublicationError("existing_revision_mismatch")
 
+    trusted_image_source = None
+    if image_source is not None:
+        try:
+            trusted_image_source = validate_image_source(image_source)
+        except MiniMaxImageError:
+            raise AssetPublicationError("existing_revision_mismatch") from None
     manifest = _load_manifest(revision_dir / "manifest.json")
+    expected_fields = (
+        _AI_MANIFEST_FIELDS
+        if trusted_image_source is not None
+        else _MANIFEST_FIELDS
+    )
+    expected_version = (
+        AI_MANIFEST_VERSION
+        if trusted_image_source is not None
+        else MANIFEST_VERSION
+    )
+    expected_source_kind = (
+        AI_SOURCE_KIND
+        if trusted_image_source is not None
+        else SOURCE_KIND
+    )
     if (
-        set(manifest) != _MANIFEST_FIELDS
-        or manifest.get("version") != MANIFEST_VERSION
+        set(manifest) != expected_fields
+        or manifest.get("version") != expected_version
         or manifest.get("revision") != revision
         or manifest.get("article_id") != article_id
         or manifest.get("template") != template_name
         or manifest.get("font_sha256") != font_digest
         or manifest.get("render_contract") != render_contract
-        or manifest.get("source_kind") != SOURCE_KIND
-        or manifest.get("ai_generated") is not False
+        or manifest.get("source_kind") != expected_source_kind
+        or manifest.get("ai_generated")
+        is not (trusted_image_source is not None)
+        or (
+            trusted_image_source is not None
+            and manifest.get("image_source") != trusted_image_source
+        )
     ):
         raise AssetPublicationError("existing_revision_mismatch")
     files = manifest.get("assets")
@@ -542,6 +605,7 @@ def validate_payload_revision(
     payload: object,
     output_dir: str | Path,
     font_path: str | Path,
+    image_source: dict[str, object] | None = None,
 ) -> dict[str, object]:
     try:
         normalized = normalize_final_payload(payload)
@@ -552,6 +616,11 @@ def validate_payload_revision(
     if cover is None:
         raise AssetPublicationError("invalid_asset_references")
     visual_brief = normalized["visual_brief"]
+    references = [cover, *assets["body"]]
+    if any(reference["ai_generated"] for reference in references) is not (
+        image_source is not None
+    ):
+        raise AssetPublicationError("asset_source_mismatch")
     copy_index = cover["copy_index"]
     if copy_index == 0:
         selected_copy = {
@@ -567,6 +636,7 @@ def validate_payload_revision(
         selected_copy=selected_copy,
         font_sha256=font_digest,
         render_contract=render_contract,
+        image_source=image_source,
     )
     if not hmac.compare_digest(expected_revision, cover["revision"]):
         raise AssetPublicationError("asset_identity_mismatch")
@@ -579,6 +649,7 @@ def validate_payload_revision(
         copy_index=copy_index,
         font_digest=font_digest,
         render_contract=render_contract,
+        image_source=image_source,
     )
 
 

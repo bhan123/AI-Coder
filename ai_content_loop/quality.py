@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 
 
 BANNED_PROMISES = (
@@ -15,11 +16,30 @@ CLICKBAIT_PATTERNS = (
     "你绝对想不到", "99%的人不知道",
 )
 
+# Strong, reusable title shells that read like generated press-release copy.
+# Keep this list narrow: the prompt handles taste, while this gate blocks only
+# patterns that are almost never the best human-facing title.
+SYNTHETIC_TITLE_PATTERNS = (
+    re.compile(r"(?:发布|上线|推出)\s*[:：]"),
+    re.compile(r"一句话\s*(?:生成|搞定|完成|打造|创建)"),
+    re.compile(
+        r"一文看懂|全面解析|深度解析|重新定义|未来已来|开启新篇章|"
+        r"真正值得关注|你需要知道|AI\s*新时代"
+    ),
+    re.compile(r"(?:最强|全能|终极)\s*(?:的\s*)?AI", re.IGNORECASE),
+    re.compile(r"(?:到底是什么|意味着什么|值不值得关注)[？?]?$"),
+)
+
 
 @dataclass(frozen=True)
 class QualityResult:
     passed: bool
     failures: list[str]
+
+
+def has_synthetic_title(title: str) -> bool:
+    normalized = re.sub(r"\s+", " ", title).strip()
+    return any(pattern.search(normalized) for pattern in SYNTHETIC_TITLE_PATTERNS)
 
 
 def evaluate_draft(title: str, markdown: str, source_url: str) -> QualityResult:
@@ -51,6 +71,9 @@ def evaluate_draft(title: str, markdown: str, source_url: str) -> QualityResult:
     clickbait_hits = [p for p in CLICKBAIT_PATTERNS if p in title]
     if clickbait_hits:
         failures.append("clickbait_title")
+
+    if has_synthetic_title(title):
+        failures.append("synthetic_title")
 
     # 感叹号过多（全角+半角）
     exclaim_count = combined.count("！") + combined.count("!")

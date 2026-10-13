@@ -1,0 +1,36 @@
+{
+  "name": "love-fueling-station-miniprogram",
+  "private": true,
+  "version": "0.1.0",
+  "description": "爱意加油站微信小程序：双方平等的行动、感受与共同约定空间",
+  "scripts": {
+    "dev:weapp": "taro build --type weapp --watch",
+    "build:weapp": "taro build --type weapp",
+    "dev:h5": "taro build --type h5 --watch",
+    "build:h5": "taro build --type h5",
+    "test": "tsx --test tests/*.test.ts tests/*.test.cjs"
+  },
+  "dependencies": {
+    "@tarojs/components": "4.2.1",
+    "@tarojs/plugin-framework-react": "4.2.1",
+    "@tarojs/plugin-platform-h5": "4.2.1",
+    "@tarojs/plugin-platform-weapp": "4.2.1",
+    "@tarojs/react": "4.2.1",
+    "@tarojs/runtime": "4.2.1",
+    "@tarojs/taro": "4.2.1",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@babel/preset-react": "7.27.1",
+    "@pmmmwh/react-refresh-webpack-plugin": "0.6.2",
+    "@tarojs/cli": "4.2.1",
+    "@tarojs/webpack5-runner": "4.2.1",
+    "@types/react": "^18.3.23",
+    "@types/react-dom": "^18.3.7",
+    "babel-preset-taro": "4.2.1",
+    "react-refresh": "0.14.2",
+    "tsx": "4.20.6",
+    "typescript": "5.9.3"
+  }
+}

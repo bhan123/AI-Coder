@@ -1,0 +1,6 @@
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# `flock` in ai-content-loop-run.sh blocks, so a trigger that lands while the
+# previous run is active waits and runs as soon as the lock is released.
+0 * * * * root /usr/local/bin/ai-content-loop-schedule.sh 2>&1 | /usr/bin/systemd-cat -t ai-content-loop-cron

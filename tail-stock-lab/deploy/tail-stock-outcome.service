@@ -1,0 +1,9 @@
+[Unit]
+Description=Collect tail-stock-lab T+1 outcomes
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/tail-stock-lab
+ExecStart=/usr/bin/docker compose exec -T tail-stock-lab python scripts/collect_t1_outcomes.py

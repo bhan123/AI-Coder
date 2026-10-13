@@ -1,0 +1,18 @@
+.pair-page { padding-bottom: 56px; }
+.pair-card { margin-top: 20px; padding: 22px; }
+.pair-copy, .pair-safety { display: block; margin: 10px 0 18px; color: #746a62; font-size: 26px; line-height: 1.7; }
+.pair-input { box-sizing: border-box; width: 100%; min-height: 82px; margin-top: 12px; padding: 0 18px; border: 1px solid #e7ddd2; border-radius: 14px; background: #fffdf9; }
+.invite-code { display: block; margin: 16px 0; padding: 18px; overflow-wrap: anywhere; border-radius: 14px; background: #fff3df; color: #5f382e; font-size: 26px; }
+.invite-actions { display: flex; gap: 14px; margin: 12px 0; }
+.invite-actions button { flex: 1; min-height: 72px; font-size: 24px; }
+.mini-code-button { min-height: 72px; margin: 0 0 14px; font-size: 24px; }
+.mini-code-card { display: flex; flex-direction: column; align-items: center; gap: 10px; margin: 12px 0 18px; padding: 18px; border-radius: 14px; background: #fff8f0; color: #746a62; font-size: 22px; line-height: 1.55; text-align: center; }
+.mini-code-image { width: 340px; min-height: 340px; border-radius: 12px; background: white; }
+.pair-safety { margin-top: 24px; color: #8b695f; }
+.consent-button { margin: 12px 0; color: #6d625b; background: #f6efe8; font-size: 26px; }
+.consent-button.is-active { color: #476c54; background: #edf5ee; }
+.privacy-link { padding: 0; color: #c74835; background: transparent; font-size: 25px; text-align: left; }
+.score-label { display: block; margin-top: 18px; color: #2d211b; font-size: 25px; font-weight: 700; }
+.score-input { min-height: 72px; margin-top: 8px; font-size: 30px; font-weight: 700; }
+.score-status { display: block; margin: 8px 2px 14px; color: #83776e; font-size: 23px; }
+.pair-preview { min-height: 68px; margin-top: 12px; font-size: 23px; }

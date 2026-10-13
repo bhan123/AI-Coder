@@ -1,0 +1,29 @@
+.principles { padding: 8rpx 28rpx; }
+.principle-row { display: flex; gap: 20rpx; padding: 28rpx 0; border-bottom: 2rpx solid #eee4d8; }
+.principle-row:last-child { border-bottom: 0; }
+.principle-row > Text { color: #d7aa55; font-size: 30rpx; font-weight: 700; }
+.principle-row View { flex: 1; }
+.principle-row View Text:first-child { display: block; color: #2d211b; font-size: 27rpx; font-weight: 700; }
+.principle-row View Text:last-child { display: block; margin-top: 8rpx; color: #83776e; font-size: 23rpx; line-height: 1.55; }
+.agreement-section { margin-top: 48rpx; }
+.agreement-section .section-title { display: block; }
+.proposal-tip { display: block; margin: -8rpx 0 20rpx; color: #71947a; font-size: 24rpx; line-height: 1.6; }
+.rule-card { padding: 28rpx; }
+.rule-label { color: #d7aa55; font-size: 23rpx; }
+.rule-title { display: block; margin-top: 12rpx; color: #2d211b; font-size: 31rpx; font-weight: 700; }
+.rule-copy { display: block; margin-top: 12rpx; color: #6d6159; font-size: 25rpx; line-height: 1.6; }
+.rule-temperature { display: block; margin-top: 16rpx; color: #ef5943; font-size: 24rpx; }
+.rule-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 18rpx; margin-top: 24rpx; }
+.rule-actions .primary-button, .rule-actions .outline-button { min-height: 78rpx; font-size: 24rpx; }
+.proposal-form { padding: 28rpx; }
+.form-label { display: block; margin: 14rpx 0 14rpx; color: #2d211b; font-size: 25rpx; font-weight: 700; }
+.form-input, .form-textarea { width: 100%; padding: 18rpx 20rpx; box-sizing: border-box; border: 2rpx solid #e8dbcf; border-radius: 18rpx; color: #2d211b; background: #fffdfa; font-size: 27rpx; line-height: 1.55; }
+.form-textarea { min-height: 150rpx; }
+.temperature-toggle { display: flex; justify-content: space-between; margin-top: 26rpx; min-height: 76rpx; padding: 0 18rpx; color: #74675d; border-radius: 16rpx; background: #f7f0e8; font-size: 24rpx; }
+.temperature-toggle.is-active { color: #ef5943; background: #fff0eb; }
+.temperature-input-row { display: flex; align-items: center; gap: 12rpx; margin-top: 16rpx; color: #6d6159; font-size: 24rpx; }
+.temperature-input-row Input { width: 120rpx; height: 60rpx; padding: 0 12rpx; border: 2rpx solid #e8dbcf; border-radius: 14rpx; background: #fffdfa; text-align: center; }
+.proposal-submit { margin-top: 30rpx; }
+.preview-tools { display: grid; gap: 16rpx; margin-top: 48rpx; padding: 26rpx; border-radius: 26rpx; background: #f5eee6; color: #83776e; font-size: 23rpx; }
+.preview-tools .soft-button { min-height: 74rpx; font-size: 25rpx; }
+.preview-reset { color: #9c8172; background: transparent; font-size: 23rpx; }

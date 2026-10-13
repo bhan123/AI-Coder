@@ -6,6 +6,15 @@ import tomllib
 
 
 @dataclass(frozen=True)
+class RssFeedConfig:
+    name: str
+    url: str
+    include_keywords: tuple[str, ...] = ()
+    limit: int = 20
+    category: str = "news"
+
+
+@dataclass(frozen=True)
 class AppConfig:
     root_dir: Path
     database_path: Path
@@ -14,6 +23,8 @@ class AppConfig:
     daily_deep_limit: int = 10
     publish_limit: int = 2
     scoring_llm_limit: int = 50
+    scoring_llm_batch_size: int = 10
+    scoring_llm_timeout_seconds: int = 180
     deep_research_enabled: bool = False
     hermes_command: str = "hermes"
     generation_timeout_seconds: int = 600
@@ -22,6 +33,7 @@ class AppConfig:
     visual_render_concurrency: int = 1
     source_limits: dict[str, int] = field(default_factory=dict)
     official_rss_feeds: list[str] = field(default_factory=list)
+    rss_feeds: list[RssFeedConfig] = field(default_factory=list)
     producthunt_token: str = ""
 
 
@@ -55,6 +67,27 @@ def _read_generation_values(data: dict[str, object]) -> tuple[str, int, int]:
     )
 
 
+def _read_scoring_values(data: dict[str, object]) -> tuple[int, int, int]:
+    scoring_llm_limit = data.get("scoring_llm_limit", 50)
+    if type(scoring_llm_limit) is not int or scoring_llm_limit < 0:
+        raise ValueError("scoring_llm_limit must be a non-negative integer")
+
+    scoring_llm_batch_size = data.get("scoring_llm_batch_size", 10)
+    if type(scoring_llm_batch_size) is not int or scoring_llm_batch_size <= 0:
+        raise ValueError("scoring_llm_batch_size must be a positive integer")
+
+    scoring_llm_timeout_seconds = data.get("scoring_llm_timeout_seconds", 180)
+    if (
+        type(scoring_llm_timeout_seconds) is not int
+        or scoring_llm_timeout_seconds <= 0
+    ):
+        raise ValueError(
+            "scoring_llm_timeout_seconds must be a positive integer"
+        )
+
+    return scoring_llm_limit, scoring_llm_batch_size, scoring_llm_timeout_seconds
+
+
 def _read_visual_values(
     data: dict[str, object], root_dir: Path
 ) -> tuple[Path | None, int]:
@@ -78,6 +111,51 @@ def _read_visual_values(
     return visual_font_path, visual_render_concurrency
 
 
+def _read_rss_feeds(data: dict[str, object]) -> list[RssFeedConfig]:
+    raw_feeds = data.get("rss_feeds", [])
+    if not isinstance(raw_feeds, list):
+        raise ValueError("rss_feeds must be an array of tables")
+
+    feeds: list[RssFeedConfig] = []
+    for index, raw in enumerate(raw_feeds):
+        if not isinstance(raw, dict):
+            raise ValueError(f"rss_feeds[{index}] must be a table")
+        name = raw.get("name")
+        url = raw.get("url")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError(f"rss_feeds[{index}].name must be a non-empty string")
+        if not isinstance(url, str) or not url.strip():
+            raise ValueError(f"rss_feeds[{index}].url must be a non-empty string")
+        raw_keywords = raw.get("include_keywords", [])
+        if not isinstance(raw_keywords, list) or not all(
+            isinstance(keyword, str) and keyword.strip()
+            for keyword in raw_keywords
+        ):
+            raise ValueError(
+                f"rss_feeds[{index}].include_keywords must be an array of strings"
+            )
+        limit = raw.get("limit", 20)
+        if type(limit) is not int or limit <= 0:
+            raise ValueError(f"rss_feeds[{index}].limit must be a positive integer")
+        category = raw.get("category", "news")
+        if category not in {"practical", "news"}:
+            raise ValueError(
+                f"rss_feeds[{index}].category must be practical or news"
+            )
+        feeds.append(
+            RssFeedConfig(
+                name=name.strip(),
+                url=url.strip(),
+                include_keywords=tuple(
+                    keyword.strip() for keyword in raw_keywords
+                ),
+                limit=limit,
+                category=str(category),
+            )
+        )
+    return feeds
+
+
 def load_config(path: str | Path) -> AppConfig:
     config_path = Path(path)
     root_dir = config_path.parent
@@ -92,6 +170,9 @@ def load_config(path: str | Path) -> AppConfig:
     hermes_command, generation_timeout_seconds, generation_retries = (
         _read_generation_values(data)
     )
+    scoring_llm_limit, scoring_llm_batch_size, scoring_llm_timeout_seconds = (
+        _read_scoring_values(data)
+    )
     visual_font_path, visual_render_concurrency = _read_visual_values(
         data, root_dir
     )
@@ -102,7 +183,9 @@ def load_config(path: str | Path) -> AppConfig:
         daily_raw_limit=int(data.get("daily_raw_limit", 200)),
         daily_deep_limit=int(data.get("daily_deep_limit", 10)),
         publish_limit=int(data.get("publish_limit", 2)),
-        scoring_llm_limit=int(data.get("scoring_llm_limit", 50)),
+        scoring_llm_limit=scoring_llm_limit,
+        scoring_llm_batch_size=scoring_llm_batch_size,
+        scoring_llm_timeout_seconds=scoring_llm_timeout_seconds,
         deep_research_enabled=bool(data.get("deep_research_enabled", False)),
         hermes_command=hermes_command,
         generation_timeout_seconds=generation_timeout_seconds,
@@ -111,5 +194,6 @@ def load_config(path: str | Path) -> AppConfig:
         visual_render_concurrency=visual_render_concurrency,
         source_limits={str(k): int(v) for k, v in data.get("source_limits", {}).items()},
         official_rss_feeds=[str(x) for x in data.get("official_rss_feeds", [])],
+        rss_feeds=_read_rss_feeds(data),
         producthunt_token=str(data.get("producthunt_token", "")),
     )

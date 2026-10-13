@@ -1,0 +1,12 @@
+services:
+  app:
+    build: .
+    container_name: hupu-sector-crowding
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config
+    environment:
+      - TZ=Asia/Shanghai
+    restart: unless-stopped

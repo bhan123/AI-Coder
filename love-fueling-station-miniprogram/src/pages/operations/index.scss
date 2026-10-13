@@ -1,0 +1,8 @@
+.operations-page { padding-bottom: 72px; }
+.operations-note { margin: 26px 0; padding: 22px; color: #8f4c3e; font-size: 27px; line-height: 1.7; }
+.operations-note text { display: block; }
+.metrics-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 28px 0; }
+.metric-card { display: flex; flex-direction: column; gap: 10px; padding: 24px; }
+.metric-card text:first-child { color: #ef5943; font-size: 45px; font-weight: 700; }
+.metric-card text:last-child, .metric-time { color: #786c63; font-size: 24px; }
+.metric-time { grid-column: 1 / -1; text-align: center; }

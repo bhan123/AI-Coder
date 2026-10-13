@@ -110,6 +110,131 @@ def test_renderer_exports_fixed_image_sizes():
     assert BODY_SIZE == (1080, 608)
 
 
+def test_generated_cover_keeps_original_image_and_adds_text_without_color_panel(
+    tmp_path, valid_brief
+):
+    background = Image.new("RGB", COVER_SIZE, (65, 105, 180))
+    cover = tmp_path / "generated-cover.jpg"
+    body = tmp_path / "generated-body.png"
+    try:
+        render_visuals(
+            brief=valid_brief,
+            template=TEMPLATES["before_vs_after"],
+            font_path=local_chinese_font(),
+            cover_path=cover,
+            body_path=body,
+            cover_background=background,
+        )
+        assert background.getpixel((100, 200)) == (65, 105, 180)
+    finally:
+        background.close()
+
+    with Image.open(cover) as image:
+        assert image.size == COVER_SIZE
+        right_pixel = image.convert("RGB").getpixel((850, 200))
+        assert all(abs(actual - expected) <= 5 for actual, expected in zip(
+            right_pixel, (65, 105, 180)
+        ))
+        left_pixel = image.convert("RGB").getpixel((20, 200))
+        assert all(abs(actual - expected) <= 5 for actual, expected in zip(
+            left_pixel, (65, 105, 180)
+        ))
+
+
+def test_generated_body_images_are_preserved_without_template_redraw(
+    tmp_path, valid_brief
+):
+    cover_background = Image.new("RGB", COVER_SIZE, (65, 105, 180))
+    first_body = Image.new("RGB", BODY_SIZE, (120, 40, 30))
+    second_body = Image.new("RGB", BODY_SIZE, (20, 130, 70))
+    cover = tmp_path / "cover.jpg"
+    body = tmp_path / "body.png"
+    second = tmp_path / "body-02.png"
+    try:
+        render_visuals(
+            brief=valid_brief,
+            template=TEMPLATES["before_vs_after"],
+            font_path=local_chinese_font(),
+            cover_path=cover,
+            body_path=body,
+            secondary_body_path=second,
+            cover_background=cover_background,
+            body_backgrounds=(first_body, second_body),
+        )
+    finally:
+        cover_background.close()
+        first_body.close()
+        second_body.close()
+
+    with Image.open(body) as image:
+        assert image.getpixel((540, 304)) == (120, 40, 30)
+    with Image.open(second) as image:
+        assert image.getpixel((540, 304)) == (20, 130, 70)
+
+
+@pytest.mark.parametrize(
+    "structure",
+    ["comparison", "pipeline", "hub", "editorial_metaphor"],
+)
+def test_local_cover_supports_semantic_material_motifs(
+    tmp_path, valid_brief, structure
+):
+    cover = tmp_path / f"{structure}.jpg"
+    body = tmp_path / f"{structure}.png"
+
+    render_visuals(
+        brief=valid_brief,
+        template=TEMPLATES["ai_done_vs_tests"],
+        font_path=local_chinese_font(),
+        cover_path=cover,
+        body_path=body,
+        illustration_structure=structure,
+    )
+
+    assert cover.stat().st_size > 0
+    assert body.stat().st_size > 0
+
+
+def test_renderer_rejects_unknown_illustration_structure(
+    tmp_path, valid_brief
+):
+    with pytest.raises(
+        VisualRenderError,
+        match="invalid_illustration_structure",
+    ):
+        render_visuals(
+            brief=valid_brief,
+            template=TEMPLATES["ai_done_vs_tests"],
+            font_path=local_chinese_font(),
+            cover_path=tmp_path / "cover.jpg",
+            body_path=tmp_path / "body.png",
+            illustration_structure="unknown",
+        )
+
+
+def test_renderer_can_emit_a_distinct_second_body_illustration(
+    tmp_path, valid_brief
+):
+    cover = tmp_path / "cover.jpg"
+    body_one = tmp_path / "body-01.png"
+    body_two = tmp_path / "body-02.png"
+
+    render_visuals(
+        brief=valid_brief,
+        template=TEMPLATES["ai_done_vs_tests"],
+        font_path=local_chinese_font(),
+        cover_path=cover,
+        body_path=body_one,
+        secondary_body_path=body_two,
+        illustration_structure="pipeline",
+    )
+
+    with Image.open(body_one) as first, Image.open(body_two) as second:
+        assert first.size == BODY_SIZE
+        assert second.size == BODY_SIZE
+        assert ImageChops.difference(first, second).getbbox() is not None
+
+
 @pytest.mark.parametrize("template_name", tuple(TEMPLATES))
 def test_each_template_renders_bounded_images_with_original_palette(
     tmp_path, valid_brief, template_name

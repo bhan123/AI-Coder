@@ -4,8 +4,10 @@ from datetime import UTC, datetime
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
+import sys
 from typing import Any
 import uuid
 
@@ -20,6 +22,10 @@ from ai_content_loop.editorial.schema import (
     payload_version,
 )
 from ai_content_loop.generation import generate_draft, write_failure_artifact
+from ai_content_loop.gpt_polish import (
+    GptPolishProposalError,
+    validate_gpt_polish_proposal,
+)
 from ai_content_loop.metrics import import_metrics_csv, weekly_summary
 from ai_content_loop.scoring import llm_score_items, score_items
 from ai_content_loop.sources.arxiv import fetch_arxiv_ai
@@ -35,9 +41,11 @@ from ai_content_loop.visuals.assets import (
     validate_payload_revision,
 )
 from ai_content_loop.visuals.pipeline import (
+    expected_image_source,
     generate_visual_assets_for_file,
     has_canonical_body_asset_marker,
 )
+from ai_content_loop.visuals.minimax_image import client_from_env
 from ai_content_loop.visuals.renderer import VisualRenderError
 
 
@@ -63,7 +71,10 @@ def cmd_score(args: argparse.Namespace) -> None:
     cfg = load_config(args.config)
     store = ContentStore(cfg.database_path)
     store.initialize()
-    items = store.list_source_items(limit=cfg.daily_raw_limit)
+    items = store.list_source_items(
+        limit=cfg.daily_raw_limit,
+        llm_eligible_only=cfg.scoring_llm_limit > 0,
+    )
     scores = score_items(items)
     store.upsert_scores(scores)
     print(f"keyword-scored {len(scores)} candidates")
@@ -71,7 +82,18 @@ def cmd_score(args: argparse.Namespace) -> None:
     # 混合打分：LLM 精选层
     if cfg.scoring_llm_limit > 0 and scores:
         items_dict = {i.dedupe_key: i for i in items}
-        top_n = min(cfg.scoring_llm_limit, len(scores))
+        queued_keys = {
+            str(row["dedupe_key"])
+            for row in store.list_publish_queue()
+        }
+        reviewed_keys = store.list_llm_reviewed_dedupe_keys()
+        eligible_scores = [
+            score
+            for score in scores
+            if score.dedupe_key not in queued_keys
+            and score.dedupe_key not in reviewed_keys
+        ]
+        top_n = min(cfg.scoring_llm_limit, len(eligible_scores))
         candidates_for_llm = [
             {
                 "dedupe_key": s.dedupe_key,
@@ -83,19 +105,59 @@ def cmd_score(args: argparse.Namespace) -> None:
                 "reason": s.reason,
                 "raw": items_dict[s.dedupe_key].raw if s.dedupe_key in items_dict else {},
             }
-            for s in scores[:top_n]
+            for s in eligible_scores[:top_n]
         ]
-        prompt_dir = Path(__file__).parent / "prompts"
-        llm_scores = llm_score_items(
-            candidates_for_llm,
-            hermes_command=cfg.hermes_command,
-            prompt_path=prompt_dir / "scoring.md",
+        skipped_queued = sum(
+            score.dedupe_key in queued_keys for score in scores
         )
-        if llm_scores:
+        skipped_reviewed = sum(
+            score.dedupe_key not in queued_keys
+            and score.dedupe_key in reviewed_keys
+            for score in scores
+        )
+        if skipped_queued:
+            print(f"llm-skipped {skipped_queued} candidates already in publish queue")
+        if skipped_reviewed:
+            print(f"llm-skipped {skipped_reviewed} candidates already reviewed")
+        if not candidates_for_llm:
+            print("LLM scoring skipped; no unqueued candidate is eligible")
+            return
+        prompt_dir = Path(__file__).parent / "prompts"
+        successful_candidates: list[dict[str, Any]] = []
+        llm_scores: list[dict[str, Any]] = []
+        failed_batches = 0
+        for start in range(0, len(candidates_for_llm), cfg.scoring_llm_batch_size):
+            if len(llm_scores) >= cfg.publish_limit:
+                break
+            batch = candidates_for_llm[
+                start : start + cfg.scoring_llm_batch_size
+            ]
+            batch_scores = llm_score_items(
+                batch,
+                hermes_command=cfg.hermes_command,
+                prompt_path=prompt_dir / "scoring.md",
+                timeout_seconds=cfg.scoring_llm_timeout_seconds,
+            )
+            if batch_scores is None:
+                failed_batches += 1
+                continue
+            successful_candidates.extend(batch)
+            llm_scores.extend(batch_scores)
+
+        candidates_for_llm = successful_candidates
+        if not successful_candidates:
+            llm_scores = None
+        if llm_scores is not None:
             # 用 LLM 打分更新数据库中的分数
             from ai_content_loop.models import CandidateScore
+            reviewed_keys = [
+                candidate["dedupe_key"] for candidate in candidates_for_llm
+            ]
+            reviewed_set = set(reviewed_keys)
             updated = []
             for ls in llm_scores:
+                if ls.get("dedupe_key") not in reviewed_set:
+                    continue
                 scores_detail = ls.get("scores", {})
                 updated.append(CandidateScore(
                     dedupe_key=ls["dedupe_key"],
@@ -111,10 +173,28 @@ def cmd_score(args: argparse.Namespace) -> None:
                     llm_column=str(ls.get("column", "")),
                     llm_angle=str(ls.get("angle", "")),
                 ))
-            store.upsert_scores(updated)
-            print(f"llm-scored {len(updated)} candidates")
+            if updated:
+                store.upsert_scores(updated)
+            recommended_keys = [
+                score["dedupe_key"]
+                for score in llm_scores
+                if score.get("dedupe_key") in reviewed_set
+            ]
+            store.record_llm_recommendations(
+                reviewed_keys=reviewed_keys,
+                recommended_keys=recommended_keys,
+            )
+            print(
+                f"llm-reviewed {len(reviewed_keys)} candidates, "
+                f"recommended {len(recommended_keys)}"
+            )
+            if failed_batches:
+                print(
+                    f"LLM scoring had {failed_batches} failed batch(es); "
+                    "previous successful recommendations were preserved"
+                )
         else:
-            print("LLM scoring failed, using keyword scores only")
+            print("LLM scoring failed for every batch; previous recommendations were preserved")
 
 
 def cmd_ingest(args: argparse.Namespace) -> None:
@@ -131,14 +211,37 @@ def cmd_ingest(args: argparse.Namespace) -> None:
             print(f"source {name} failed: {exc}")
 
     limits = cfg.source_limits
-    collect_source("github", lambda: fetch_github_repositories(limits.get("github", 30), fetched_at=fetched_at))
-    collect_source("hackernews", lambda: fetch_hackernews_show(limits.get("hackernews", 30), fetched_at=fetched_at))
-    collect_source("arxiv", lambda: fetch_arxiv_ai(limits.get("arxiv", 30), fetched_at=fetched_at))
-    collect_source("modelscope", lambda: fetch_modelscope_models(limits.get("huggingface", 30), fetched_at=fetched_at))
-    collect_source(
+
+    def collect_limited_source(name: str, default: int, fetcher) -> None:
+        limit = int(limits.get(name, default))
+        if limit > 0:
+            collect_source(name, lambda: fetcher(limit))
+
+    collect_limited_source(
+        "github",
+        30,
+        lambda limit: fetch_github_repositories(limit, fetched_at=fetched_at),
+    )
+    collect_limited_source(
+        "hackernews",
+        30,
+        lambda limit: fetch_hackernews_show(limit, fetched_at=fetched_at),
+    )
+    collect_limited_source(
+        "arxiv",
+        30,
+        lambda limit: fetch_arxiv_ai(limit, fetched_at=fetched_at),
+    )
+    collect_limited_source(
+        "modelscope",
+        30,
+        lambda limit: fetch_modelscope_models(limit, fetched_at=fetched_at),
+    )
+    collect_limited_source(
         "producthunt",
-        lambda: fetch_producthunt_posts(
-            limits.get("producthunt", 20),
+        20,
+        lambda limit: fetch_producthunt_posts(
+            limit,
             fetched_at=fetched_at,
             token=cfg.producthunt_token,
         ),
@@ -150,11 +253,75 @@ def cmd_ingest(args: argparse.Namespace) -> None:
                 feed_url,
                 source_name=f"official_rss_{index}",
                 fetched_at=fetched_at,
+                limit=limits.get("official_rss", 10),
+            ),
+        )
+    for feed in cfg.rss_feeds:
+        collect_source(
+            feed.name,
+            lambda feed=feed: fetch_rss_feed(
+                feed.url,
+                source_name=feed.name,
+                fetched_at=fetched_at,
+                include_keywords=feed.include_keywords,
+                limit=feed.limit,
             ),
         )
 
     store.upsert_source_items(collected[: cfg.daily_raw_limit])
     print(f"ingested {min(len(collected), cfg.daily_raw_limit)} source items")
+
+
+RESEARCH_SOURCES = {"arxiv", "modelscope", "huggingface"}
+PRACTICAL_SOURCES = {"producthunt", "huggingface_spaces"}
+PRACTICAL_RSS_PREFIXES = (
+    "rss_sspai",
+    "rss_appinn",
+    "rss_ifanr",
+    "rss_zapier",
+)
+
+
+def _is_practical_source(source: str) -> bool:
+    return source in PRACTICAL_SOURCES or source.startswith(PRACTICAL_RSS_PREFIXES)
+
+
+def select_balanced_candidates(
+    candidates: list[dict[str, Any]], limit: int
+) -> list[dict[str, Any]]:
+    if limit <= 0:
+        return []
+
+    selected: list[dict[str, Any]] = []
+    practical = next(
+        (
+            candidate
+            for candidate in candidates
+            if _is_practical_source(str(candidate.get("source", "")))
+        ),
+        None,
+    )
+    if practical is not None:
+        selected.append(practical)
+
+    research_count = sum(
+        str(candidate.get("source", "")) in RESEARCH_SOURCES
+        for candidate in selected
+    )
+    selected_keys = {candidate["dedupe_key"] for candidate in selected}
+    for candidate in candidates:
+        if len(selected) >= limit:
+            break
+        if candidate["dedupe_key"] in selected_keys:
+            continue
+        source = str(candidate.get("source", ""))
+        if source in RESEARCH_SOURCES and research_count >= 1:
+            continue
+        selected.append(candidate)
+        selected_keys.add(candidate["dedupe_key"])
+        if source in RESEARCH_SOURCES:
+            research_count += 1
+    return selected
 
 
 def cmd_build_queue(args: argparse.Namespace) -> None:
@@ -163,9 +330,12 @@ def cmd_build_queue(args: argparse.Namespace) -> None:
     store.initialize()
     drafts_dir = cfg.output_dir / "drafts"
     drafts_dir.mkdir(parents=True, exist_ok=True)
-    candidates = store.list_ranked_candidates(
-        limit=cfg.publish_limit, exclude_queued=True
+    ranked = store.list_ranked_candidates(
+        limit=max(50, cfg.publish_limit * 10),
+        exclude_queued=True,
+        recommended_only=cfg.scoring_llm_limit > 0,
     )
+    candidates = select_balanced_candidates(ranked, limit=cfg.publish_limit)
     for candidate in candidates:
         pack = build_evidence_pack(candidate, deep_research=cfg.deep_research_enabled)
         llm_column = str(candidate.get("llm_column", "") or "")
@@ -387,6 +557,7 @@ def _clear_asset_failure(output_dir: Path, dedupe_key: str) -> None:
 def cmd_generate_assets(args: argparse.Namespace) -> None:
     cfg = load_config(args.config)
     font_path = _configured_visual_font(cfg)
+    image_client = client_from_env(os.environ)
     if cfg.visual_render_concurrency != 1:
         raise ValueError("visual_render_concurrency must be the integer 1")
 
@@ -438,6 +609,7 @@ def cmd_generate_assets(args: argparse.Namespace) -> None:
                     template_name=template_name,
                     copy_index=copy_index,
                     expected_version=expected_version,
+                    image_client=image_client,
                 )
 
             try:
@@ -445,6 +617,11 @@ def cmd_generate_assets(args: argparse.Namespace) -> None:
                     payload,
                     cfg.output_dir,
                     font_path,
+                    image_source=expected_image_source(
+                        payload=payload,
+                        image_client=image_client,
+                        copy_index=copy_index,
+                    ),
                 )
             except AssetPublicationError:
                 generate_assets()
@@ -509,6 +686,56 @@ def cmd_weekly_summary(args: argparse.Namespace) -> None:
     print(f"wrote {output}")
 
 
+def cmd_gpt_polish_claim(args: argparse.Namespace) -> None:
+    cfg = load_config(args.config)
+    store = ContentStore(cfg.database_path)
+    store.initialize()
+    job = store.claim_next_gpt_polish_job(args.worker)
+    print(json.dumps({"job": job}, ensure_ascii=False, separators=(",", ":")))
+
+
+def _read_gpt_polish_proposal(path: str) -> dict[str, Any]:
+    if path == "-":
+        raw = sys.stdin.read(1_500_001)
+    else:
+        candidate = Path(path)
+        if not candidate.is_file() or candidate.is_symlink():
+            raise SystemExit("proposal file is unavailable")
+        if candidate.stat().st_size > 1_500_000:
+            raise SystemExit("proposal file is too large")
+        raw = candidate.read_text(encoding="utf-8")
+    if len(raw.encode("utf-8")) > 1_500_000:
+        raise SystemExit("proposal is too large")
+    try:
+        value = json.loads(raw)
+        return validate_gpt_polish_proposal(value)
+    except (json.JSONDecodeError, UnicodeError, GptPolishProposalError):
+        raise SystemExit("proposal is invalid") from None
+
+
+def cmd_gpt_polish_submit(args: argparse.Namespace) -> None:
+    proposal = _read_gpt_polish_proposal(args.proposal_file)
+    cfg = load_config(args.config)
+    store = ContentStore(cfg.database_path)
+    store.initialize()
+    if not store.submit_gpt_polish_proposal(
+        args.job_id, args.worker, proposal
+    ):
+        raise SystemExit("GPT polish job cannot accept this proposal")
+    print(json.dumps({"job_id": args.job_id, "status": "ready"}))
+
+
+def cmd_gpt_polish_fail(args: argparse.Namespace) -> None:
+    if re.fullmatch(r"[a-z][a-z0-9_]{0,79}", args.error) is None:
+        raise SystemExit("error must be a stable code")
+    cfg = load_config(args.config)
+    store = ContentStore(cfg.database_path)
+    store.initialize()
+    if not store.fail_gpt_polish_job(args.job_id, args.worker, args.error):
+        raise SystemExit("GPT polish job cannot be failed by this worker")
+    print(json.dumps({"job_id": args.job_id, "status": "failed"}))
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="AI content loop MVP")
     parser.add_argument("--config", default="ai_content_loop/config.example.toml")
@@ -542,6 +769,22 @@ def build_parser() -> argparse.ArgumentParser:
     weekly = sub.add_parser("weekly-summary")
     weekly.add_argument("--since", required=True)
     weekly.set_defaults(func=cmd_weekly_summary)
+
+    polish_claim = sub.add_parser("gpt-polish-claim")
+    polish_claim.add_argument("--worker", required=True)
+    polish_claim.set_defaults(func=cmd_gpt_polish_claim)
+
+    polish_submit = sub.add_parser("gpt-polish-submit")
+    polish_submit.add_argument("--job-id", required=True)
+    polish_submit.add_argument("--worker", required=True)
+    polish_submit.add_argument("--proposal-file", required=True)
+    polish_submit.set_defaults(func=cmd_gpt_polish_submit)
+
+    polish_fail = sub.add_parser("gpt-polish-fail")
+    polish_fail.add_argument("--job-id", required=True)
+    polish_fail.add_argument("--worker", required=True)
+    polish_fail.add_argument("--error", required=True)
+    polish_fail.set_defaults(func=cmd_gpt_polish_fail)
     return parser
 
 

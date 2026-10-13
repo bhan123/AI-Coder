@@ -34,6 +34,33 @@ visual_font_path = "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
 visual_render_concurrency = 1
 ```
 
+创建 MiniMax 生图专用环境文件。这里必须填写开放平台 Token Plan 的
+**订阅 Key**；不要填写普通 API Key，否则请求会按账户余额计费：
+
+```bash
+sudo install -m 600 -o root -g root /dev/null \
+  /opt/ai-content-loop/image.env
+sudoedit /opt/ai-content-loop/image.env
+```
+
+```text
+MINIMAX_IMAGE_API_KEY=PASTE_THE_TOKEN_PLAN_SUBSCRIPTION_KEY_HERE
+MINIMAX_IMAGE_MODEL=image-01
+# 可选，默认 https://api.minimaxi.com
+# MINIMAX_IMAGE_API_BASE_URL=https://api.minimaxi.com
+```
+
+生图链路不依赖 OpenAI，也不要求服务器连接 VPN。Hermes 当前配置的
+MiniMax M3 只负责随文章返回受约束的 `visual_brief`；服务端再把它确定性
+路由为对比、流程、枢纽或编辑隐喻。配置 Key 后，由 MiniMax `image-01`
+生成一张无文字封面底图和两张内容型正文插图；Pillow 仅在同一张封面原图
+上叠加准确中文，不铺大面积模板色块。正文图逐张失败时才回退本地插画。
+
+`image.env` 缺失或 Key 为空、接口超时、内容安全拒绝或图片校验失败时，
+系统自动使用同一语义计划绘制本地素材插画，因此不会阻断文章生成。新文章
+默认输出一张封面和两张功能不同的正文图；旧版单正文图文章继续兼容。公众号
+同步会逐张上传并分散插入正文，不会只在富预览中显示。
+
 ## 2. 生成审阅凭据
 
 生成会话密钥：
@@ -71,7 +98,8 @@ WECHAT_APP_SECRET=PASTE_THE_OFFICIAL_ACCOUNT_APP_SECRET_HERE
 # WECHAT_API_BASE_URL=https://api.weixin.qq.com
 ```
 
-不要把明文密码、公众号 AppSecret 或 `review.env` 放进 Git。公众号凭据
+不要把明文密码、公众号 AppSecret、MiniMax Key、`review.env` 或
+`image.env` 放进 Git。公众号凭据
 缺失时按钮会显示“公众号未配置”，服务不会发起任何外部请求。该功能只调用
 素材上传与 `draft/add` 创建草稿，严禁接入自动发布或群发接口。
 
@@ -88,6 +116,7 @@ sudo systemd-analyze verify \
 sudo systemd-analyze verify \
   /etc/systemd/system/ai-content-review.service
 sudo systemctl daemon-reload
+sudo systemctl restart ai-content-loop.timer
 sudo systemctl enable --now ai-content-review.service
 sudo systemctl status ai-content-review.service --no-pager
 ```
@@ -163,17 +192,44 @@ tailscale funnel status
 8. 手机窄屏下能切换编辑和预览。
 9. 已通过且未修改的文章可人工点击“同步公众号草稿”，公众号后台出现草稿；
    页面不会自动同步，也不会自动发布或群发。
+10. 新文章生成一张封面与两张正文图，公众号草稿中可看到两张正文图；临时
+    移除生图 Key 后仍能通过本地素材插画稳定生成全部图片。
+11. 文章未保存时“请求 GPT 精修”不可用；保存后可创建任务，页面显示
+    “等待本机 GPT 领取”。候选稿返回后可查看独立评分、修改摘要与母稿前后
+    对照。只有人工点击“应用 GPT 版本”才会保存，并重新进入待审核状态。
 
-## 7. 日志
+## 7. Windows 本机 GPT 精修
+
+本机 Skill 安装在：
+
+```text
+C:\Users\36997\.codex\skills\gpt-polish-article
+```
+
+操作顺序：
+
+1. 在审阅台打开目标文章，保存已有修改后点击“请求 GPT 精修”。
+2. 在 Windows Codex 中说“处理待精修文章”，或明确使用
+   `$gpt-polish-article`。
+3. Skill 通过 SSH 领取一个任务，核实原始来源，独立评分并生成母稿与四个
+   平台候选版本，再把候选稿提交回服务器。
+4. 回到审阅台检查评分和前后对照。点击“应用 GPT 版本”才写入新历史版本；
+   点击“放弃候选”不会改变原文。
+
+该链路不调用微信接口，不会自动发布，也不改动已有主题、封面或正文配图。
+服务器以文章版本号拒绝过期候选，避免覆盖较新的人工修改。
+
+## 8. 日志
 
 ```bash
 journalctl -u ai-content-review.service -n 100 --no-pager
 journalctl -u ai-content-loop.service -n 100 --no-pager
 ```
 
-日志中不得记录密码、密码哈希、会话密钥或正文全文。
+日志中不得记录密码、密码哈希、会话密钥、MiniMax Key、图片 Base64
+或正文全文。
 
-## 8. 回退
+## 9. 回退
 
 关闭公网入口：
 

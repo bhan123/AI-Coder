@@ -283,6 +283,36 @@ def test_generate_runs_factual_then_editorial_pass(tmp_path):
     assert "懂技术的损友" in calls[1]
 
 
+def test_generate_repairs_only_layout_copy_mismatch_from_validated_body(
+    tmp_path,
+):
+    editorial = enriched_payload()
+    editorial["article_layout"]["blocks"][1]["text"] = (
+        "This model-written layout summary is not a body excerpt"
+    )
+    outputs = [valid_core_payload(), editorial]
+
+    def runner(argv, **_kwargs):
+        return successful_process(argv, outputs.pop(0))
+
+    outcome = run_generation(tmp_path, runner, retries=0)
+    persisted = json.loads(outcome.output_path.read_text(encoding="utf-8"))
+    hard, warnings = validate_generation_payload(
+        persisted,
+        dedupe_key=DEDUPE_KEY,
+        source_url=SOURCE_URL,
+        require_rich_layout=True,
+        layout_fact_evidence=locked_layout_evidence(),
+    )
+
+    assert outcome.status == "generated"
+    assert outcome.attempts == 2
+    assert outputs == []
+    assert hard == []
+    assert warnings == []
+    assert persisted["article_layout"] != editorial["article_layout"]
+
+
 def test_generate_layout_request_is_selected_once_and_reused_for_editorial_retry(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -511,6 +541,52 @@ def test_invalid_factual_pass_is_not_retried(tmp_path):
     assert outcome.attempts == 1
     assert calls == 1
     assert artifact["attempt_failures"] == [["unknown_fields"]]
+
+
+def test_malformed_json_factual_pass_is_retried_once(tmp_path):
+    calls: list[str] = []
+
+    def runner(argv, **_kwargs):
+        calls.append(argv[-1])
+        if len(calls) == 1:
+            return subprocess.CompletedProcess(
+                argv,
+                0,
+                stdout="Hermes returned no structured payload.",
+                stderr="",
+            )
+        if len(calls) == 2:
+            return successful_process(argv, valid_core_payload())
+        return successful_process(argv, enriched_payload())
+
+    outcome = run_generation(tmp_path, runner, retries=1)
+
+    assert outcome.status == "generated"
+    assert outcome.attempts == 3
+    assert len(calls) == 3
+    assert "invalid_output:Hermes output contains no JSON object" in calls[1]
+
+
+def test_malformed_json_factual_retry_is_bounded(tmp_path):
+    calls = 0
+
+    def runner(argv, **_kwargs):
+        nonlocal calls
+        calls += 1
+        return subprocess.CompletedProcess(
+            argv,
+            0,
+            stdout="Hermes returned no structured payload.",
+            stderr="",
+        )
+
+    outcome = run_generation(tmp_path, runner, retries=3)
+    artifact = json.loads(outcome.output_path.read_text(encoding="utf-8"))
+
+    assert outcome.status == "failed"
+    assert outcome.attempts == 2
+    assert calls == 2
+    assert len(artifact["attempt_failures"]) == 2
 
 
 @pytest.mark.parametrize(
@@ -2048,6 +2124,22 @@ def test_validator_accepts_safe_chinese_editorial_punctuation_in_layout():
     assert warnings == []
 
 
+def test_validator_accepts_grounded_ampersand_in_plain_layout_text():
+    payload = enriched_payload()
+    payload["article_layout"]["blocks"][1]["text"] = (
+        "100+ AI Agent & RAG apps you can actually run — clone, customize, ship。"
+    )
+
+    hard, warnings = validate_generation_payload(
+        payload,
+        dedupe_key=DEDUPE_KEY,
+        source_url=SOURCE_URL,
+    )
+
+    assert hard == []
+    assert warnings == []
+
+
 def test_validator_rejects_layout_source_url_not_present_in_locked_facts():
     payload = enriched_payload()
     payload["article_layout"]["blocks"][-1]["url"] = (
@@ -2245,6 +2337,29 @@ def test_validator_rejects_non_plain_layout_text(unsafe_text, failure):
     assert unsafe_text not in " ".join(hard)
 
 
+@pytest.mark.parametrize(
+    "safe_text",
+    [
+        "旧流程 → 新流程",
+        "效率提升 20%，仍需人工复核",
+        "模型输出–验证–发布",
+        "误差 ≤ 5%，收益 ≥ 成本",
+    ],
+)
+def test_validator_allows_common_safe_editorial_unicode(safe_text):
+    payload = enriched_payload()
+    payload["article_layout"]["blocks"][1]["text"] = safe_text
+
+    hard, warnings = validate_generation_payload(
+        payload,
+        dedupe_key=DEDUPE_KEY,
+        source_url=SOURCE_URL,
+    )
+
+    assert hard == []
+    assert warnings == []
+
+
 def test_validator_rejects_non_http_source_note_scheme_without_echoing_url():
     payload = enriched_payload()
     unsafe_url = "file:///private/model-output"
@@ -2278,11 +2393,11 @@ def test_validator_rejects_layout_fact_not_present_in_body_or_evidence():
     assert injected_fact not in " ".join(hard)
 
 
-def test_validator_rejects_layout_fact_present_only_in_unverified_body():
+def test_validator_allows_layout_copy_from_already_validated_body():
     payload = enriched_payload()
-    injected_fact = "这条未经核验的正文说法不能进入布局"
-    payload["master_markdown"] += f"\n\n{injected_fact}"
-    payload["article_layout"]["blocks"][1]["text"] = injected_fact
+    editorial_judgment = "真正的价值不是更快，而是更容易验证"
+    payload["master_markdown"] += f"\n\n{editorial_judgment}"
+    payload["article_layout"]["blocks"][1]["text"] = editorial_judgment
 
     hard, warnings = validate_generation_payload(
         payload,
@@ -2292,9 +2407,25 @@ def test_validator_rejects_layout_fact_present_only_in_unverified_body():
         layout_fact_evidence=locked_layout_evidence(),
     )
 
-    assert hard == ["article_layout:not_grounded_in_fact_evidence"]
+    assert hard == []
     assert warnings == []
-    assert injected_fact not in " ".join(hard)
+
+
+def test_validator_rejects_rich_layout_that_omits_a_master_paragraph():
+    payload = enriched_payload()
+    omitted = "这一段包含必须进入富阅读版本的完整正文信息"
+    payload["master_markdown"] += f"\n\n{omitted}"
+
+    hard, warnings = validate_generation_payload(
+        payload,
+        dedupe_key=DEDUPE_KEY,
+        source_url=SOURCE_URL,
+        require_rich_layout=True,
+        layout_fact_evidence=locked_layout_evidence(),
+    )
+
+    assert hard == ["article_layout:incomplete_body_coverage"]
+    assert warnings == []
 
 
 def _platform_body_with_length(length):
@@ -2302,7 +2433,7 @@ def _platform_body_with_length(length):
     return "文" * (length - len(suffix)) + suffix
 
 
-def test_validator_requires_every_platform_body_to_have_at_least_600_chars():
+def test_validator_warns_when_a_platform_body_is_below_the_600_char_target():
     payload = enriched_payload()
     payload["platform_markdown"] = {
         platform: _platform_body_with_length(599)
@@ -2315,13 +2446,13 @@ def test_validator_requires_every_platform_body_to_have_at_least_600_chars():
         source_url=SOURCE_URL,
     )
 
-    assert set(hard) == {
+    assert hard == []
+    assert set(warnings) == {
         "wechat:below_target_length",
         "xiaohongshu:below_target_length",
         "toutiao:below_target_length",
         "zhihu:below_target_length",
     }
-    assert warnings == []
 
 
 def test_validator_accepts_600_chars_and_has_no_maximum_body_length():
@@ -2365,7 +2496,7 @@ def test_active_prompts_state_two_pass_contracts():
     combined_prompts = factual_prompt + editorial_prompt + scoring_prompt
 
     assert "# Hermes 事实稿" in factual_prompt
-    assert "Prompt version: factual-v9" in factual_prompt
+    assert "Prompt version: factual-v11" in factual_prompt
     assert "只写事实稿，不添加第一人称体验、段子、收入承诺或视觉素材。" in factual_prompt
     assert "所有数字、功能、限制和链接必须来自输入事实包，不得捏造。" in factual_prompt
     assert "事实锚点" in factual_prompt
@@ -2377,13 +2508,19 @@ def test_active_prompts_state_two_pass_contracts():
     assert "不少于 600 字，不设上限" in factual_prompt
     assert "1200-2200" not in factual_prompt
     assert "# Hermes 选题评分提示词" in scoring_prompt
-    assert "Prompt version: scoring-v6" in scoring_prompt
+    assert "Prompt version: scoring-v8" in scoring_prompt
     assert "证据可锚定性" in scoring_prompt
     assert "判断空间" in scoring_prompt
     assert "读者回报" in scoring_prompt
     assert "没有公开 Demo、可用入口或强情绪价值" in scoring_prompt
+    assert "clarity 低于 7 分不得推荐" in scoring_prompt
+    assert "饭桌复述测试" in scoring_prompt
+    assert "宁缺毋滥，不为凑数量推荐" in scoring_prompt
     assert "# 懂技术的损友编辑" in editorial_prompt
-    assert "Prompt version: editorial-v17" in editorial_prompt
+    assert "Prompt version: editorial-v22" in editorial_prompt
+    assert "先在内部拟 5 个标题" in editorial_prompt
+    assert "替换项目名后仍能套用" in editorial_prompt
+    assert "不要使用“产品名 + 发布/上线 + 冒号 + 功能说明”" in factual_prompt
     assert "输入包含锁定事实、事实稿和来源。只改变表达，不新增或修改事实。" in editorial_prompt
     assert "## 人格" in editorial_prompt
     assert "懂技术的朋友 45%，产品经理 + 数据工程师 35%" in editorial_prompt
@@ -2400,13 +2537,19 @@ def test_active_prompts_state_two_pass_contracts():
     assert "实用价值、情绪价值、认知价值三者至少写透一个" in editorial_prompt
     assert "不算读者回报" in editorial_prompt
     assert "可复用判断框架" in editorial_prompt
-    assert "正例" in editorial_prompt
-    assert "反例" in editorial_prompt
     assert "### 三类价值择一写透" not in editorial_prompt
     assert "不得把以下编辑检查项写进正文" in editorial_prompt
     assert "来源没有时间表时，不得写“3 个月内”" in editorial_prompt
     assert "点名比较商业产品必须有对应独立来源" in editorial_prompt
     assert "不要连续堆两个以上专业术语" in editorial_prompt
+    assert "把读者当成聪明但没有技术背景的人" in editorial_prompt
+    assert "每个关键概念至少接一个生活或工作场景" in editorial_prompt
+    assert "删除术语不影响事实时，直接删除术语" in editorial_prompt
+    assert "小标题必须概括本节独有的信息" in editorial_prompt
+    assert (
+        "禁用“先看发生了什么”“关键事实与细节”“这意味着什么”等"
+        in editorial_prompt
+    )
     assert "不得出现真实姓名" in editorial_prompt
     assert "证据截图拼贴" in editorial_prompt
     assert "工作流前后对比" in editorial_prompt
@@ -2435,12 +2578,28 @@ def test_active_prompts_state_two_pass_contracts():
     assert "source_note.url must exactly equal locked_facts.source_url" in editorial_prompt
     assert "plain-text, verbatim excerpts from the final body and locked source fields" in editorial_prompt
     assert "Never use factual_draft as layout evidence" in editorial_prompt
+    assert "不得与标题换词复述" in editorial_prompt
+    assert "每段只完成一个表达任务" in editorial_prompt
+    assert "大多数正文段落控制在 25–90 个汉字" in editorial_prompt
+    assert "每 2–4 个短段落" in editorial_prompt
+    assert "末段 40–160 字" in editorial_prompt
+    assert "回扣开头、给决策规则或留下具体问题" in editorial_prompt
+    assert "值得关注/持续观察" in editorial_prompt
+    assert "长文尽量有 5 个彼此不同的材料锚点" in factual_prompt
+    assert "写作者的位置是“认真读过这些来源、替普通读者做过取舍的人”" in factual_prompt
+    assert "只换说法、不增加信息的段落删除" in factual_prompt
+    assert "长文尽量使用 5 个彼此不同的材料锚点" in editorial_prompt
+    assert "不冒充亲历者" in editorial_prompt
+    assert "动作、数字或细节已经把意思说完时" in editorial_prompt
+    assert "不是 A，而是 B" in combined_prompts
+    assert "真正值得关注的是" in combined_prompts
+    assert "结尾留一点余味" in editorial_prompt
     assert '"humor_level": "balanced"' in editorial_prompt
     assert '"humor_level": "spicy"' not in editorial_prompt
     assert "[来源1]" not in combined_prompts
     assert "来源1" not in combined_prompts
     assert "来源2" not in combined_prompts
-    assert len(editorial_prompt) < 6000
+    assert len(editorial_prompt) < 7600
     private_name = "".join(chr(codepoint) for codepoint in (0x97E9, 0x579A))
     assert private_name not in combined_prompts
 
@@ -2842,6 +3001,20 @@ def test_validator_reports_shared_short_title_once():
     )
     # title_too_short is a style warning, not a hard blocker
     assert hard == []
+
+
+def test_validator_retries_instead_of_accepting_synthetic_title():
+    payload = valid_payload()
+    payload["master_title"] = "ChatGPT Sites 上线：一句话生成小网站"
+
+    hard, warnings = validate_generation_payload(
+        payload,
+        dedupe_key=DEDUPE_KEY,
+        source_url=SOURCE_URL,
+    )
+
+    assert "master:synthetic_title" in hard
+    assert "master:synthetic_title" not in warnings
 
 
 @pytest.mark.parametrize("column", ["", "  \t\n"])

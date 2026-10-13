@@ -1,0 +1,10 @@
+{
+  "status": "passed",
+  "event_key_unique": true,
+  "source_denominators_reconciled": true,
+  "computed_results_match": true,
+  "notebook_executed_without_errors": true,
+  "event_count": 381,
+  "extract_sha256": "f47f7ec6b51ed058028fc3663cd3be39830727e99c985121e6d3bd150688ac6d",
+  "artifact_bytes": 196779
+}

@@ -3,6 +3,7 @@ from ai_content_loop.sources.github import parse_github_search
 from ai_content_loop.sources.hackernews import parse_hn_items
 from ai_content_loop.sources.huggingface import parse_huggingface_models
 from ai_content_loop.sources.producthunt import parse_producthunt_posts
+from ai_content_loop.sources.rss import parse_rss
 
 
 def test_parse_github_search_normalizes_items():
@@ -98,3 +99,48 @@ def test_parse_producthunt_posts_normalizes_votes():
 
     assert items[0].dedupe_key == "producthunt:post-1"
     assert items[0].raw["votes"] == 88
+
+
+def test_parse_rss_supports_atom_and_uses_link_href():
+    xml = """<?xml version="1.0" encoding="UTF-8"?>
+    <feed xmlns="http://www.w3.org/2005/Atom">
+      <entry>
+        <id>tag:example.com,2026:ai-tool</id>
+        <title>An AI tool for everyday email</title>
+        <summary>It helps ordinary teams draft replies faster.</summary>
+        <updated>2026-07-22T00:00:00Z</updated>
+        <link rel="alternate" href="https://example.com/ai-tool" />
+      </entry>
+    </feed>
+    """
+
+    items = parse_rss(xml, source_name="rss_verge_ai", fetched_at="now")
+
+    assert len(items) == 1
+    assert items[0].external_id == "tag:example.com,2026:ai-tool"
+    assert items[0].url == "https://example.com/ai-tool"
+
+
+def test_parse_rss_filters_irrelevant_feed_items_and_strips_html():
+    xml = """<rss><channel>
+      <item>
+        <title>AI 办公助手更新</title>
+        <link>https://example.com/ai</link>
+        <description><![CDATA[<p>普通人也能用的 <b>ChatGPT</b> 工作流</p>]]></description>
+      </item>
+      <item>
+        <title>新款 Email 键盘</title>
+        <link>https://example.com/keyboard</link>
+        <description>一款普通外设</description>
+      </item>
+    </channel></rss>"""
+
+    items = parse_rss(
+        xml,
+        source_name="rss_sspai_ai",
+        fetched_at="now",
+        include_keywords=("AI", "ChatGPT"),
+    )
+
+    assert [item.title for item in items] == ["AI 办公助手更新"]
+    assert items[0].summary == "普通人也能用的 ChatGPT 工作流"

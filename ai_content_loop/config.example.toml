@@ -5,6 +5,10 @@ daily_deep_limit = 10
 publish_limit = 2
 # 混合打分：关键词预筛后交给 LLM 精选的候选数（0 = 纯关键词，不调用 LLM）
 scoring_llm_limit = 50
+# 每次 LLM 评分的候选数。小批次可避免单次提示词过长导致整轮超时。
+scoring_llm_batch_size = 10
+# 单个评分批次最长等待时间；某批失败不会抹掉此前成功的推荐。
+scoring_llm_timeout_seconds = 180
 # 深度研究：是否抓取源内容（GitHub README、HN 评论等）增强证据包
 deep_research_enabled = false
 hermes_command = "hermes"
@@ -14,6 +18,8 @@ generation_retries = 1
 # visual_font_path = "fonts/NotoSansCJK-Regular.ttc"
 # Stage 1 intentionally serializes local visual rendering.
 visual_render_concurrency = 1
+# Optional AI cover backgrounds are configured only through the root-readable
+# /opt/ai-content-loop/image.env file. Never put API keys in this TOML file.
 producthunt_token = ""
 official_rss_feeds = [
   "https://openai.com/news/rss.xml",
@@ -21,9 +27,51 @@ official_rss_feeds = [
 ]
 
 [source_limits]
-github = 30
-hackernews = 30
-arxiv = 30
-modelscope = 30
+github = 12
+hackernews = 8
+arxiv = 0
+modelscope = 0
 producthunt = 20
-official_rss = 30
+official_rss = 10
+
+# Practical, ordinary-reader-friendly discovery feeds. Broad feeds use an AI
+# keyword filter; category feeds do not need one. The LLM remains the final gate.
+[[rss_feeds]]
+name = "rss_appinn_ai"
+url = "https://www.appinn.com/feed/"
+include_keywords = ["AI", "人工智能", "ChatGPT", "Claude", "大模型", "智能体"]
+limit = 12
+category = "practical"
+
+[[rss_feeds]]
+name = "rss_sspai_ai"
+url = "https://sspai.com/feed"
+include_keywords = ["AI", "人工智能", "ChatGPT", "Claude", "大模型", "智能体"]
+limit = 12
+category = "practical"
+
+[[rss_feeds]]
+name = "rss_ifanr_ai"
+url = "https://www.ifanr.com/feed"
+include_keywords = ["AI", "人工智能", "ChatGPT", "Claude", "大模型", "智能体"]
+limit = 12
+category = "practical"
+
+[[rss_feeds]]
+name = "rss_zapier_ai"
+url = "https://zapier.com/blog/feeds/latest/"
+include_keywords = ["AI", "ChatGPT", "Claude", "automation", "agent"]
+limit = 12
+category = "practical"
+
+[[rss_feeds]]
+name = "rss_techcrunch_ai"
+url = "https://techcrunch.com/category/artificial-intelligence/feed/"
+limit = 12
+category = "news"
+
+[[rss_feeds]]
+name = "rss_verge_ai"
+url = "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml"
+limit = 12
+category = "news"

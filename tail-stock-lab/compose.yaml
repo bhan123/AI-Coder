@@ -1,0 +1,17 @@
+services:
+  tail-stock-lab:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tail-stock-lab
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8011:8010"
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8010/health', timeout=5)"]
+      interval: 30s
+      timeout: 8s
+      retries: 3
+      start_period: 20s

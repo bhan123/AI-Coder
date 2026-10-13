@@ -1,0 +1,10 @@
+[Unit]
+Description=Run AI content loop every hour
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+Unit=ai-content-loop.service
+
+[Install]
+WantedBy=timers.target

@@ -55,6 +55,159 @@ def test_wechat_renderer_safely_falls_back_for_legacy_empty_layout():
     assert 'src="https://mmbiz.qpic.cn/body.png"' in html
 
 
+def test_wechat_renderer_distributes_multiple_body_images():
+    from ai_content_loop.wechat.rendering import render_wechat_article
+
+    layout = {
+        "theme": "press",
+        "structure": "explainer",
+        "blocks": [
+            {"type": "hero", "title": "标题", "deck": "收益"},
+            {"type": "lead", "text": "结论"},
+            {"type": "section", "heading": "第一步", "paragraphs": ["正文一"]},
+            {"type": "section", "heading": "第二步", "paragraphs": ["正文二"]},
+        ],
+    }
+    urls = [
+        "https://mmbiz.qpic.cn/body-01.png",
+        "https://mmbiz.qpic.cn/body-02.png",
+    ]
+
+    html = render_wechat_article(
+        layout,
+        fallback_title="unused",
+        fallback_markdown="unused",
+        body_image_urls=urls,
+    )
+
+    assert all(f'src="{url}"' in html for url in urls)
+    assert html.index(urls[0]) < html.index("第一步")
+    assert html.index(urls[1]) > html.index("第一步")
+
+
+def test_wechat_kama_theme_uses_sample_derived_inline_reading_styles():
+    from ai_content_loop.wechat.rendering import render_wechat_article
+
+    html = render_wechat_article(
+        {
+            "theme": "kama",
+            "structure": "explainer",
+            "blocks": [
+                {"type": "hero", "title": "标题", "deck": "先把收益说清楚"},
+                {"type": "key_judgment", "text": "这句值得读者记住。"},
+                {
+                    "type": "section",
+                    "heading": "它到底解决了什么？",
+                    "paragraphs": ["一段只说一件事。", "下一段继续推进。"],
+                },
+            ],
+        },
+        fallback_title="unused",
+        fallback_markdown="unused",
+        body_image_url="https://mmbiz.qpic.cn/body.png",
+    )
+
+    assert "#0e88eb" in html.lower()
+    assert "border-left:5px solid #0e88eb" in html.lower()
+    assert "font-size:15px" in html
+    assert "line-height:1.8" in html
+    assert "关键判断" not in html
+
+
+def test_wechat_layout_never_drops_full_platform_markdown_paragraphs():
+    from ai_content_loop.wechat.rendering import render_wechat_article
+
+    source_url = "https://example.com/source"
+    html = render_wechat_article(
+        {
+            "theme": "press",
+            "structure": "briefing",
+            "blocks": [
+                {"type": "hero", "title": "完整文章", "deck": "摘要"},
+                {
+                    "type": "section",
+                    "heading": "摘要",
+                    "paragraphs": ["摘要"],
+                },
+                {
+                    "type": "source_note",
+                    "url": source_url,
+                    "attribution": "原始来源",
+                },
+            ],
+        },
+        fallback_title="完整文章",
+        fallback_markdown=(
+            "第一段必须进入公众号。\n\n{{asset:body-01}}\n\n"
+            "第二段也必须进入公众号。\n\n"
+            f"来源：{source_url}"
+        ),
+        body_image_url="https://mmbiz.qpic.cn/body.png",
+    )
+
+    assert "第一段必须进入公众号。" in html
+    assert "第二段也必须进入公众号。" in html
+    assert "{{asset:" not in html
+    assert html.count(source_url) == 1
+
+
+def test_wechat_layout_deduplicates_the_hero_deck_and_lead():
+    from ai_content_loop.wechat.rendering import render_wechat_article
+
+    repeated = "同一段摘要在公众号里也只应该出现一次。"
+    html = render_wechat_article(
+        {
+            "theme": "vignelli",
+            "structure": "essay",
+            "blocks": [
+                {"type": "hero", "title": "标题", "deck": repeated},
+                {"type": "lead", "text": repeated},
+                {"type": "section", "heading": "正文", "paragraphs": ["正文段落。"]},
+            ],
+        },
+        fallback_title="标题",
+        fallback_markdown="正文段落。",
+        body_image_url="https://mmbiz.qpic.cn/body.png",
+    )
+
+    assert html.count(repeated) == 1
+
+
+def test_wechat_renderer_removes_legacy_generic_headings_from_authored_intro():
+    from ai_content_loop.wechat.rendering import render_wechat_article
+
+    html = render_wechat_article(
+        {
+            "theme": "press",
+            "structure": "briefing",
+            "blocks": [
+                {"type": "hero", "title": "标题", "deck": "摘要"},
+                {
+                    "type": "section",
+                    "heading": "先看发生了什么",
+                    "paragraphs": ["引言第一段。", "引言第二段。"],
+                },
+                {
+                    "type": "section",
+                    "heading": "关键事实与细节",
+                    "paragraphs": ["作者正文。"],
+                },
+            ],
+        },
+        fallback_title="标题",
+        fallback_markdown=(
+            "引言第一段。\n\n引言第二段。\n\n"
+            "## 作者写的具体问题\n\n作者正文。"
+        ),
+        body_image_url="https://mmbiz.qpic.cn/body.png",
+    )
+
+    assert "先看发生了什么" not in html
+    assert "关键事实与细节" not in html
+    assert "作者写的具体问题" in html
+    assert html.index("引言第二段。") < html.index("作者写的具体问题")
+
+
 class FakeTransport:
     def __init__(self, responses):
         self.responses = list(responses)

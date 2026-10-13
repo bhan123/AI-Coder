@@ -10,6 +10,7 @@ Group=agentuser
 WorkingDirectory=/opt/ai-content-loop/repo
 Environment=HOME=/home/agentuser
 Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/opt/ai-content-loop/image.env
 UMask=0027
-ExecStart=/opt/ai-content-loop/venv/bin/python -m ai_content_loop.cli --config /opt/ai-content-loop/config.toml daily
+ExecStart=/usr/local/bin/ai-content-loop-run.sh
 TimeoutStartSec=45min

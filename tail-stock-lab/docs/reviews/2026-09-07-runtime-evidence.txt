@@ -1,0 +1,22 @@
+4b2f862f5ceb630b97eee8789e660ea97f43ea3a09e19eaf3ad72580d9753fc4  backend/app/main.py
+5486900ad761130c86f9c0ca16323c3120e7377236e2f5c92f00a86e05cea928  backend/app/data_provider.py
+b700cf3a28c0f77bd61a7279e6c0a02ac011ca187780c272ed499f76b4fdc2c0  backend/app/repository.py
+5a4afee9bbc2a7bb9850e32a49edb0d34f68b93cb8b87e6bc3c285ccf6cbdbd7  backend/app/service.py
+64f3e5123536abe7aa9df21e016ce07775410c707afd464b56a5758166ab1819  backend/app/t1_collector.py
+7369dd31960e7c41d3f49a5893102cb953c2871fbf67d5674bca0d278e1131b6  backend/app/strategies/fishing_v1.py
+66bf673f90fd1105be1ffdb4ca69dd39746d4b5e45d4fcfc35c9245a2a6f61d4  backend/app/strategies/limit_up_ambush.py
+4934fe769613d6da457ab4516c34c2a671e030def7d4d4e61c518dd6811afd14  backend/scripts/scan_limit_up_ambush.py
+7eb97f8560ae43200a4c124dad30862c33c8ca49ea5e3382033ce56628b83d54  frontend/src/App.jsx
+Result=success
+ExecMainStartTimestamp=Fri 2026-09-04 14:50:01 CST
+ExecMainExitTimestamp=Fri 2026-09-04 14:50:33 CST
+Id=tail-stock-capture.service
+
+Result=success
+ExecMainStartTimestamp=Mon 2026-09-07 10:35:02 CST
+ExecMainExitTimestamp=Mon 2026-09-07 10:35:08 CST
+Id=tail-stock-outcome.service
+v1_rule_exit_stats {"n": 31, "positive": 8, "mean": -1.658, "median": -1.14}
+v1_missing_charts [{"signal_at": "2026-09-04T14:50:02.240203+08:00", "outcome_date": "2026-09-07"}, {"signal_at": "2026-09-04T14:50:02.240203+08:00", "outcome_date": "2026-09-07"}, {"signal_at": "2026-09-04T14:50:02.240203+08:00", "outcome_date": "2026-09-07"}, {"signal_at": "2026-09-01T14:50:02.553858+08:00", "outcome_date": "2026-09-02"}, {"signal_at": "2026-09-01T14:50:02.553858+08:00", "outcome_date": "2026-09-02"}, {"signal_at": "2026-09-01T14:50:02.553858+08:00", "outcome_date": "2026-09-02"}]
+overdue_chart_counts [{"strategy_id": "fishing-reversal", "n": 7}, {"strategy_id": "limit-up-ambush", "n": 139}, {"strategy_id": "p1-sector-resonance", "n": 3}, {"strategy_id": "p4-leader-reconvergence", "n": 1}]
+openapi_security 200

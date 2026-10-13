@@ -25,6 +25,13 @@ body { background: #f7fafc; color: #1f2933; margin: 0; }
 .rich-article__toc { border-left: 3px solid #d9e2ec; font-family: system-ui, sans-serif; margin: 1.5rem 0; padding-left: 1rem; }
 .rich-article__toc ol { margin: 0.5rem 0; padding-left: 1.25rem; }
 .rich-article__lead { font-size: 1.2rem; font-weight: 600; }
+.rich-article__prose { margin: 1.5rem 0; }
+.rich-article__prose p { line-height: 1.85; margin: 0 0 1.15rem; }
+.rich-article__prose p:last-child { margin-bottom: 0; }
+.rich-article > section[id^="section-"] { margin: 2.4rem 0; scroll-margin-top: 1rem; }
+.rich-article > section[id^="section-"] h2 { font-size: 1.55rem; line-height: 1.35; margin: 0 0 1rem; }
+.rich-article > section[id^="section-"] p { line-height: 1.85; margin: 0 0 1.15rem; }
+.rich-article > section[id^="section-"] p:last-child { margin-bottom: 0; }
 .rich-article__judgment, .rich-article__callout { background: #f0f4f8; border-radius: 0.35rem; margin: 1.25rem 0; padding: 1rem 1.15rem; }
 .rich-article__comparison { display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin: 1.25rem 0; }
 .rich-article__comparison div { border-top: 2px solid #829ab1; padding-top: 0.45rem; }
@@ -32,6 +39,10 @@ body { background: #f7fafc; color: #1f2933; margin: 0; }
 .rich-article__quote p { font-size: 1.1rem; margin-bottom: 0.35rem; }
 .rich-article__source { color: #52606d; font-family: system-ui, sans-serif; font-size: 0.9rem; }
 .rich-article__source a { color: #186faf; overflow-wrap: anywhere; }
+.rich-article__image { margin: 1.6rem 0 1.9rem; }
+.rich-article__image img, .web-edition__cover img { display: block; height: auto; max-width: 100%; width: 100%; }
+.rich-article__image figcaption { color: #7a828c; font-family: system-ui, sans-serif; font-size: 0.75rem; margin-top: 0.45rem; text-align: center; }
+.web-edition__cover { margin: 0 0 2rem; }
 @media (max-width: 680px) { .web-edition { margin: 0; padding: 1.25rem; } .rich-article__hero h1 { font-size: 1.8rem; } }
 """.strip()
 _THEME_CSS = {
@@ -58,11 +69,26 @@ _THEME_CSS = {
 .rich-article--vignelli .rich-article__judgment, .rich-article--vignelli .rich-article__callout { background: #f5f5f2; border-radius: 0; }
 .rich-article--vignelli .rich-article__quote { border-color: #111; }
 """.strip(),
+    "kama": """
+.rich-article--kama { --rich-theme: kama; color: #242424; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 15px; line-height: 1.8; max-width: 680px; }
+.rich-article--kama .rich-article__hero { border-bottom: 0; margin-bottom: 1.4rem; padding-bottom: 0; }
+.rich-article--kama .rich-article__hero h1 { color: #171717; font-size: 2rem; line-height: 1.35; }
+.rich-article--kama .rich-article__deck { color: #666; font-size: 1rem; line-height: 1.8; }
+.rich-article--kama .rich-article__toc { border-left-color: #dcecf8; }
+.rich-article--kama .rich-article__toc a, .rich-article--kama .rich-article__lead, .rich-article--kama .rich-article__judgment, .rich-article--kama .rich-article__callout { color: #0e88eb; }
+.rich-article--kama .rich-article__lead { font-size: 1rem; line-height: 1.8; }
+.rich-article--kama .rich-article__judgment, .rich-article--kama .rich-article__callout { background: transparent; border-radius: 0; font-weight: 600; margin: 1.35rem 0; padding: 0; }
+.rich-article--kama .rich-article__judgment strong { display: none; }
+.rich-article--kama .rich-article__judgment p { margin: 0; }
+.rich-article--kama > section[id^="section-"] { margin: 2rem 0; }
+.rich-article--kama > section[id^="section-"] h2 { border-left: 5px solid #0e88eb; color: #0e88eb; font-size: 18px; line-height: 1.8; margin: 0 0 1rem; padding-left: 10px; }
+.rich-article--kama .rich-article__prose p, .rich-article--kama > section[id^="section-"] p { line-height: 1.8; margin: 0 0 0.9rem; }
+.rich-article--kama .rich-article__comparison div, .rich-article--kama .rich-article__quote { border-color: #0e88eb; }
+""".strip(),
 }
 
 if set(_THEME_CSS) != set(ARTICLE_THEMES):
     raise RuntimeError("web edition CSS must cover every supported article theme")
-_IMAGE_TAG = re.compile(r"<img\b[^>]*>", re.IGNORECASE)
 _DATA_IMAGE_URL = re.compile(
     r"data:image/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]*={0,2}\Z"
 )
@@ -79,21 +105,26 @@ def render_web_edition(
 
     safe_title = title if isinstance(title, str) else ""
     theme = article_theme_for_layout(article_layout) or "press"
+    trusted_images = [
+        (source, alt)
+        for source, alt in (embedded_images or [])
+        if _DATA_IMAGE_URL.fullmatch(source)
+    ]
+    cover_images = [item for item in trusted_images if item[1] == "文章封面"]
+    body_images = [item for item in trusted_images if item[1] != "文章封面"]
     article_html = render_rich_article(
         article_layout,
         fallback_title=safe_title,
         fallback_markdown=fallback_markdown,
+        body_images=body_images,
     )
-    # The rich renderer's markdown fallback can contain Markdown image links.
-    # A standalone edition has no trusted mapping for those URLs, so omit them
-    # rather than letting a browser fetch an external or unverified resource.
-    article_html = _IMAGE_TAG.sub("", article_html)
+    # The rich renderer strips model/Markdown images before reinserting only
+    # the repository-owned data images supplied above.
     image_html = "".join(
-        '<figure class="web-edition__image">'
+        '<figure class="web-edition__cover">'
         f'<img src="{escape(src, quote=True)}" alt="{escape(alt, quote=True)}">'
         "</figure>"
-        for src, alt in (embedded_images or [])
-        if _DATA_IMAGE_URL.fullmatch(src)
+        for src, alt in cover_images[:1]
     )
     return (
         "<!doctype html>\n"

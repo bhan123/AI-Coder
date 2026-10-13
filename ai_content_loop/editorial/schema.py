@@ -16,7 +16,7 @@ from ai_content_loop.visuals.templates import TEMPLATES
 
 
 PLATFORMS = ("wechat", "xiaohongshu", "toutiao", "zhihu")
-ARTICLE_THEMES = ("press", "tufte", "magazine", "vignelli")
+ARTICLE_THEMES = ("press", "tufte", "magazine", "vignelli", "kama")
 ARTICLE_STRUCTURES = ("briefing", "explainer", "essay")
 CORE_FIELDS = {
     "dedupe_key",
@@ -48,6 +48,7 @@ _ARTICLE_LAYOUT_BLOCK_TYPES = {
     "hero",
     "lead",
     "key_judgment",
+    "prose",
     "section",
     "workflow_compare",
     "quote",
@@ -58,6 +59,7 @@ _ARTICLE_LAYOUT_BLOCK_FIELDS = {
     "hero": {"type", "title", "deck"},
     "lead": {"type", "text"},
     "key_judgment": {"type", "text"},
+    "prose": {"type", "paragraphs"},
     "section": {"type", "heading", "paragraphs"},
     "workflow_compare": {
         "type",
@@ -242,7 +244,7 @@ def _validate_asset_reference(
         or value.get("template") not in TEMPLATES
         or type(value.get("copy_index")) is not int
         or not 0 <= value["copy_index"] <= 2
-        or value.get("ai_generated") is not False
+        or type(value.get("ai_generated")) is not bool
     ):
         raise FinalSchemaError(
             "visual_assets reference does not match the supported schema"
@@ -259,9 +261,9 @@ def _validate_visual_assets(value: object, *, dedupe_key: str) -> None:
     body = value.get("body")
     if cover is None and body == []:
         return
-    if cover is None or not isinstance(body, list) or len(body) != 1:
+    if cover is None or not isinstance(body, list) or not 1 <= len(body) <= 3:
         raise FinalSchemaError(
-            "visual_assets must be empty or contain cover and one body asset"
+            "visual_assets must be empty or contain cover and one to three body assets"
         )
     article_id = article_id_for(dedupe_key)
     cover_ref = _validate_asset_reference(
@@ -270,22 +272,27 @@ def _validate_visual_assets(value: object, *, dedupe_key: str) -> None:
         filename="cover.jpg",
         article_id=article_id,
     )
-    body_ref = _validate_asset_reference(
-        body[0],
-        asset_id="body-01",
-        filename="body.png",
-        article_id=article_id,
-    )
-    for field in (
-        "revision",
-        "template",
-        "copy_index",
-        "ai_generated",
-    ):
-        if cover_ref[field] != body_ref[field]:
-            raise FinalSchemaError(
-                "visual_assets references must describe one revision"
-            )
+    body_refs = []
+    for index, item in enumerate(body, start=1):
+        asset_id = f"body-{index:02d}"
+        filename = "body.png" if index == 1 else f"body-{index:02d}.png"
+        body_ref = _validate_asset_reference(
+            item,
+            asset_id=asset_id,
+            filename=filename,
+            article_id=article_id,
+        )
+        body_refs.append(body_ref)
+    for body_ref in body_refs:
+        for field in (
+            "revision",
+            "template",
+            "copy_index",
+        ):
+            if cover_ref[field] != body_ref[field]:
+                raise FinalSchemaError(
+                    "visual_assets references must describe one revision"
+                )
 
 
 def _validate_article_layout_block(value: object, index: int) -> None:
@@ -310,8 +317,9 @@ def _validate_article_layout_block(value: object, index: int) -> None:
             _validate_text(value.get(field), f"{prefix}.{field}")
     elif block_type in {"lead", "key_judgment", "callout"}:
         _validate_text(value.get("text"), f"{prefix}.text")
-    elif block_type == "section":
-        _validate_text(value.get("heading"), f"{prefix}.heading")
+    elif block_type in {"prose", "section"}:
+        if block_type == "section":
+            _validate_text(value.get("heading"), f"{prefix}.heading")
         paragraphs = value.get("paragraphs")
         if not isinstance(paragraphs, list) or not paragraphs:
             raise FinalSchemaError(

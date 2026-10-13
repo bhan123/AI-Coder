@@ -76,6 +76,31 @@ Keep `visual_font_path` and `visual_render_concurrency` above
 The production source limit for Hacker News can be reduced to `10` when
 Tencent Cloud connectivity makes its per-item API slow.
 
+Keep the MiniMax Token Plan subscription Key outside TOML in a root-readable
+environment file consumed by both systemd services:
+
+```bash
+sudo install -m 600 -o root -g root /dev/null /opt/ai-content-loop/image.env
+sudoedit /opt/ai-content-loop/image.env
+```
+
+```text
+MINIMAX_IMAGE_API_KEY=PASTE_THE_TOKEN_PLAN_SUBSCRIPTION_KEY_HERE
+MINIMAX_IMAGE_MODEL=image-01
+# MINIMAX_IMAGE_API_BASE_URL=https://api.minimaxi.com
+```
+
+该链路不接入 OpenAI，也不依赖服务器 VPN。MiniMax M3/Hermes 负责产出
+受约束的视觉语义，`image-01` 在配置订阅 Key 时生成一张无文字封面底图和
+两张分别对应 `body_panels` 的内容型正文插图；Pillow 只在封面原图上叠加
+准确中文，不再覆盖大色块。单张远端生图不可用时，仅该张自动
+回退本地渲染，不影响文章进入审阅台或公众号草稿流程。
+
+This enables one text-free AI cover background and two content-specific body
+illustrations. Pillow adds Chinese typography directly to the same cover image.
+Each failed image request falls back independently to the deterministic local
+renderer; article generation continues.
+
 ## Manual commands
 
 ```bash
@@ -93,6 +118,45 @@ Run the complete daily chain manually:
 /opt/ai-content-loop/venv/bin/python -m ai_content_loop.cli \
   --config /opt/ai-content-loop/config.toml \
   daily
+```
+
+The direct manual command does not load `image.env`. To test the exact
+production environment, install the unit below and run:
+
+```bash
+sudo systemctl start ai-content-loop.service
+sudo journalctl -u ai-content-loop.service -n 100 --no-pager
+```
+
+## Clearing generated articles safely
+
+Do not rename, replace, or delete `/opt/ai-content-loop/out` while
+`ai-content-review.service` is running. The review service uses systemd
+`ReadWritePaths` to bind that exact directory into its sandbox. Replacing the
+directory leaves the running process attached to the old inode; the new
+directory is readable but writes fail with `article_lock_unavailable`.
+
+Use the versioned reset command, which clears the known generated-data
+subdirectories without replacing the output root, then restart the review
+service so its sandbox is guaranteed to reference the current path:
+
+```bash
+cd /opt/ai-content-loop/repo
+sudo systemctl stop ai-content-review.service
+sudo -u agentuser /opt/ai-content-loop/venv/bin/python \
+  deploy/reset_generated_articles.py \
+  --confirm DELETE_GENERATED_ARTICLES
+sudo systemctl start ai-content-review.service
+sudo systemctl is-active ai-content-review.service
+curl -I http://127.0.0.1:8765/login
+```
+
+If the output root was moved manually, restarting the review service is the
+required recovery step. Verify the bind mount points to the live directory:
+
+```bash
+PID="$(systemctl show ai-content-review.service -p MainPID --value)"
+sudo grep '/opt/ai-content-loop/out ' "/proc/$PID/mountinfo"
 ```
 
 ## Daily systemd timer

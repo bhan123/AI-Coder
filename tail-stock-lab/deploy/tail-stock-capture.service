@@ -1,0 +1,9 @@
+[Unit]
+Description=Capture tail-stock-lab tail-session snapshot
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/tail-stock-lab
+ExecStart=/usr/bin/docker compose exec -T tail-stock-lab python scripts/capture_tail_snapshot.py

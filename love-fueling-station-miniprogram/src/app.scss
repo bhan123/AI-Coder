@@ -1,0 +1,39 @@
+$ivory: #fffaf3;
+$surface: #fffdfa;
+$ink: #2d211b;
+$muted: #83776e;
+$coral: #ef5943;
+$sage: #71947a;
+$gold: #d7aa55;
+$line: #eee4d8;
+
+page {
+  min-height: 100%;
+  background: $ivory;
+  color: $ink;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+button::after { border: 0; }
+
+// Taro H5 会为没有 iconPath 的 tabBar 项生成空 <img>；隐藏图片本身。
+// 不使用父级关系伪类，因为微信 WXSS 编译器不支持该选择器。
+.weui-tabbar__icon:not([src]) { display: none !important; }
+
+.page-shell { min-height: 100vh; padding: 28rpx 32rpx 54rpx; box-sizing: border-box; }
+.page-title { margin: 0; font-size: 48rpx; font-weight: 700; letter-spacing: -1rpx; }
+.page-subtitle { margin: 12rpx 0 36rpx; color: $muted; font-size: 28rpx; line-height: 1.65; }
+.section-title { margin: 42rpx 0 20rpx; font-size: 34rpx; font-weight: 700; }
+.surface { background: $surface; border: 2rpx solid $line; border-radius: 34rpx; box-shadow: 0 14rpx 34rpx rgba(71, 45, 24, .055); }
+.soft-button, .primary-button, .outline-button { display: flex; align-items: center; justify-content: center; min-height: 96rpx; padding: 0 30rpx; box-sizing: border-box; border-radius: 24rpx; font-size: 30rpx; font-weight: 650; line-height: 1; }
+.primary-button { color: white; background: $coral; box-shadow: 0 14rpx 24rpx rgba(239, 89, 67, .22); }
+.primary-button[disabled] { opacity: .48; }
+.outline-button { color: $coral; border: 2rpx solid $coral; background: transparent; }
+.soft-button { color: $ink; background: #f7f0e8; }
+.safety-card { display: flex; gap: 18rpx; margin-top: 36rpx; padding: 24rpx; border: 2rpx solid #f1d8c6; border-radius: 26rpx; background: #fff5ed; }
+.safety-icon { color: $coral; font-size: 32rpx; line-height: 1.4; }
+.safety-copy { flex: 1; }
+.safety-title { display: block; margin-bottom: 6rpx; color: $ink; font-size: 26rpx; font-weight: 700; }
+.safety-text { color: #725b4f; font-size: 24rpx; line-height: 1.65; }
+.empty-state { padding: 52rpx 30rpx; text-align: center; color: $muted; font-size: 28rpx; line-height: 1.65; }
+.access-gate { display: flex; min-height: 72vh; flex-direction: column; justify-content: center; }

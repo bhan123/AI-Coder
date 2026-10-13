@@ -1,0 +1,14 @@
+[Unit]
+Description=Run tail-stock-lab intraday limit-up ambush alerts
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ubuntu/tail-stock-lab
+ExecStart=/usr/bin/docker compose exec -T tail-stock-lab python scripts/scan_limit_up_ambush.py
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target

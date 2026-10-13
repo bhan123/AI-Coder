@@ -1,0 +1,9 @@
+[Unit]
+Description=Run tail-stock-lab T+1 outcome collector on weekdays
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 10:35:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

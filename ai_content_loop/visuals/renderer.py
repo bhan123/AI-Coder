@@ -18,6 +18,9 @@ _SPLIT_PANEL_BOXES = (
 )
 _UNASSIGNED_GLYPH_PROBES = ("\u0378", "\u0380", "\u0381")
 _ZWJ = "\u200d"
+_ILLUSTRATION_STRUCTURES = frozenset(
+    {"comparison", "pipeline", "hub", "editorial_metaphor"}
+)
 
 
 class VisualRenderError(RuntimeError):
@@ -308,6 +311,8 @@ def _draw_text_in_box(
     fill: str,
     start_size: int,
     min_size: int,
+    stroke_width: int = 0,
+    stroke_fill: str | None = None,
 ) -> None:
     left, top, right, bottom = box
     max_width = right - left
@@ -340,6 +345,7 @@ def _draw_text_in_box(
         font=font,
         spacing=spacing,
         align="center",
+        stroke_width=stroke_width,
     )
     if (
         placed[0] < left
@@ -355,7 +361,122 @@ def _draw_text_in_box(
         fill=fill,
         spacing=spacing,
         align="center",
+        stroke_width=stroke_width,
+        stroke_fill=stroke_fill,
     )
+
+
+def _draw_arrow(
+    draw: ImageDraw.ImageDraw,
+    start: tuple[int, int],
+    end: tuple[int, int],
+    *,
+    fill: str,
+    width: int = 5,
+) -> None:
+    draw.line((*start, *end), fill=fill, width=width)
+    x, y = end
+    draw.polygon(
+        ((x, y), (x - 10, y - 7), (x - 10, y + 7)),
+        fill=fill,
+    )
+
+
+def _draw_material_motif(
+    draw: ImageDraw.ImageDraw,
+    structure: str,
+    template: TemplateSpec,
+) -> None:
+    """Draw one restrained semantic object in the cover's safe right rail."""
+
+    foreground = template.foreground
+    background = template.background
+    accent = template.accent
+    if structure == "comparison":
+        draw.rounded_rectangle(
+            (694, 116, 759, 267),
+            radius=13,
+            fill=background,
+            outline=foreground,
+            width=4,
+        )
+        draw.line((706, 145, 747, 145), fill=foreground, width=4)
+        draw.line((706, 166, 738, 166), fill=foreground, width=4)
+        draw.rounded_rectangle(
+            (794, 83, 859, 234),
+            radius=13,
+            fill=accent,
+            outline=foreground,
+            width=4,
+        )
+        draw.ellipse((811, 113, 842, 144), fill=background)
+        draw.line((811, 169, 842, 169), fill=background, width=5)
+        draw.line((811, 189, 842, 189), fill=background, width=5)
+        _draw_arrow(draw, (759, 210), (790, 182), fill=foreground)
+        return
+
+    if structure == "pipeline":
+        centers = (719, 777, 835)
+        for index, center_x in enumerate(centers):
+            fill = accent if index == 1 else background
+            draw.rounded_rectangle(
+                (center_x - 21, 166, center_x + 21, 208),
+                radius=10,
+                fill=fill,
+                outline=foreground,
+                width=4,
+            )
+            draw.ellipse(
+                (center_x - 6, 181, center_x + 6, 193),
+                fill=background if index == 1 else accent,
+            )
+        _draw_arrow(draw, (742, 187), (753, 187), fill=foreground, width=4)
+        _draw_arrow(draw, (800, 187), (811, 187), fill=foreground, width=4)
+        draw.line((698, 233, 856, 233), fill=accent, width=8)
+        return
+
+    if structure == "hub":
+        center = (778, 190)
+        satellites = ((716, 113), (841, 113), (716, 270), (841, 270))
+        for point in satellites:
+            draw.line((*center, *point), fill=foreground, width=5)
+            draw.ellipse(
+                (point[0] - 17, point[1] - 17, point[0] + 17, point[1] + 17),
+                fill=background,
+                outline=foreground,
+                width=4,
+            )
+            draw.ellipse(
+                (point[0] - 6, point[1] - 6, point[0] + 6, point[1] + 6),
+                fill=accent,
+            )
+        draw.ellipse((741, 153, 815, 227), fill=accent, outline=foreground, width=5)
+        draw.rounded_rectangle(
+            (762, 174, 794, 206),
+            radius=7,
+            fill=background,
+        )
+        return
+
+    if structure == "editorial_metaphor":
+        draw.polygon(
+            ((696, 267), (748, 205), (788, 229), (839, 137), (861, 153),
+             (803, 278)),
+            fill=accent,
+            outline=foreground,
+        )
+        draw.line((698, 280, 858, 280), fill=foreground, width=6)
+        draw.ellipse(
+            (705, 87, 763, 145),
+            fill=background,
+            outline=foreground,
+            width=5,
+        )
+        draw.line((734, 145, 763, 199), fill=foreground, width=5)
+        draw.ellipse((724, 106, 744, 126), fill=accent)
+        return
+
+    raise VisualRenderError("invalid_illustration_structure")
 
 
 def _render_cover(
@@ -363,35 +484,9 @@ def _render_cover(
     value: dict[str, object],
     template: TemplateSpec,
     font_path: Path,
+    illustration_structure: str,
 ) -> None:
-    draw.rounded_rectangle(
-        (710, 55, 845, 328),
-        radius=30,
-        fill=template.accent,
-    )
-    draw.ellipse(
-        (742, 105, 813, 176),
-        outline=template.background,
-        width=7,
-    )
-    draw.ellipse((761, 128, 770, 137), fill=template.background)
-    draw.ellipse((786, 128, 795, 137), fill=template.background)
-    draw.line(
-        (759, 153, 777, 160, 797, 151),
-        fill=template.background,
-        width=6,
-        joint="curve",
-    )
-    draw.line(
-        (778, 190, 778, 272),
-        fill=template.background,
-        width=10,
-    )
-    draw.line(
-        (742, 218, 814, 218),
-        fill=template.background,
-        width=10,
-    )
+    _draw_material_motif(draw, illustration_structure, template)
 
     _draw_text_in_box(
         draw,
@@ -410,6 +505,39 @@ def _render_cover(
         fill=template.foreground,
         start_size=32,
         min_size=22,
+    )
+
+
+def _render_generated_cover(
+    image: Image.Image,
+    value: dict[str, object],
+    template: TemplateSpec,
+    font_path: Path,
+) -> None:
+    """Draw readable typography directly on one AI-made cover image."""
+
+    draw = ImageDraw.Draw(image)
+    _draw_text_in_box(
+        draw,
+        str(value["cover_line"]),
+        font_path,
+        (55, 42, 650, 242),
+        fill="#FFFFFF",
+        start_size=62,
+        min_size=36,
+        stroke_width=3,
+        stroke_fill="#101820",
+    )
+    _draw_text_in_box(
+        draw,
+        str(value["cover_subline"]),
+        font_path,
+        (60, 255, 650, 342),
+        fill="#FFFFFF",
+        start_size=32,
+        min_size=22,
+        stroke_width=2,
+        stroke_fill="#101820",
     )
 
 
@@ -572,6 +700,62 @@ def _render_verdict_body(
     )
 
 
+def _render_takeaway_body(
+    draw: ImageDraw.ImageDraw,
+    value: dict[str, object],
+    template: TemplateSpec,
+    font_path: Path,
+) -> None:
+    """Render a second, complementary image instead of duplicating the first."""
+
+    panels = value["body_panels"]
+    if not isinstance(panels, list) or len(panels) != 2:
+        raise VisualRenderError("invalid_template")
+    draw.rounded_rectangle(
+        (85, 65, 995, 543),
+        radius=44,
+        fill=template.background,
+        outline=template.accent,
+        width=8,
+    )
+    draw.rounded_rectangle(
+        (85, 65, 245, 543),
+        radius=44,
+        fill=template.accent,
+    )
+    draw.ellipse((137, 125, 193, 181), fill=template.background)
+    draw.line((165, 181, 165, 415), fill=template.background, width=7)
+    draw.ellipse((137, 415, 193, 471), fill=template.background)
+    _draw_text_in_box(
+        draw,
+        str(value["cover_subline"]),
+        font_path,
+        (290, 105, 930, 285),
+        fill=template.foreground,
+        start_size=54,
+        min_size=32,
+    )
+    for index, panel in enumerate(panels):
+        if not isinstance(panel, dict):
+            raise VisualRenderError("invalid_template")
+        left = 290 + index * 330
+        draw.rounded_rectangle(
+            (left, 340, left + 290, 485),
+            radius=26,
+            outline=template.accent,
+            width=6,
+        )
+        _draw_text_in_box(
+            draw,
+            f"{panel['label']} · {panel['reaction']}",
+            font_path,
+            (left + 20, 360, left + 270, 465),
+            fill=template.foreground,
+            start_size=34,
+            min_size=22,
+        )
+
+
 def _canonical_template(template: TemplateSpec) -> TemplateSpec:
     if type(template) is not TemplateSpec:
         raise VisualRenderError("invalid_template")
@@ -606,6 +790,10 @@ def render_visuals(
     font_path: Path,
     cover_path: Path,
     body_path: Path,
+    secondary_body_path: Path | None = None,
+    cover_background: Image.Image | None = None,
+    body_backgrounds: tuple[Image.Image | None, Image.Image | None] | None = None,
+    illustration_structure: str = "comparison",
 ) -> None:
     """Render registered local geometry or fail before publishing tofu glyphs.
 
@@ -617,39 +805,106 @@ def render_visuals(
     value = normalize_visual_brief(brief)
     approved_template = _canonical_template(template)
     cover_output, body_output = _output_paths(cover_path, body_path)
+    secondary_output = None
+    if secondary_body_path is not None:
+        secondary_output = Path(secondary_body_path)
+        if (
+            not secondary_output.name
+            or secondary_output.resolve(strict=False)
+            in {
+                cover_output.resolve(strict=False),
+                body_output.resolve(strict=False),
+            }
+        ):
+            raise VisualRenderError("invalid_output")
+    if illustration_structure not in _ILLUSTRATION_STRUCTURES:
+        raise VisualRenderError("invalid_illustration_structure")
 
     cover: Image.Image | None = None
     body: Image.Image | None = None
+    secondary_body: Image.Image | None = None
     try:
-        cover = Image.new("RGB", COVER_SIZE, approved_template.background)
-        body = Image.new("RGB", BODY_SIZE, approved_template.background)
-        _render_cover(
-            ImageDraw.Draw(cover),
-            value,
-            approved_template,
-            font_path,
+        if cover_background is None:
+            cover = Image.new("RGB", COVER_SIZE, approved_template.background)
+        elif (
+            not isinstance(cover_background, Image.Image)
+            or cover_background.mode != "RGB"
+            or cover_background.size != COVER_SIZE
+        ):
+            raise VisualRenderError("invalid_cover_background")
+        else:
+            cover = cover_background.copy()
+        if body_backgrounds is None:
+            body_backgrounds = (None, None)
+        if (
+            not isinstance(body_backgrounds, tuple)
+            or len(body_backgrounds) != 2
+        ):
+            raise VisualRenderError("invalid_body_background")
+        for background in body_backgrounds:
+            if background is not None and (
+                not isinstance(background, Image.Image)
+                or background.mode != "RGB"
+                or background.size != BODY_SIZE
+            ):
+                raise VisualRenderError("invalid_body_background")
+        body = (
+            Image.new("RGB", BODY_SIZE, approved_template.background)
+            if body_backgrounds[0] is None
+            else body_backgrounds[0].copy()
         )
-        body_draw = ImageDraw.Draw(body)
-        if approved_template.layout == "split":
-            _render_split_body(
-                body_draw,
-                value,
-                approved_template,
-                font_path,
+        if secondary_output is not None:
+            secondary_body = (
+                Image.new("RGB", BODY_SIZE, approved_template.background)
+                if body_backgrounds[1] is None
+                else body_backgrounds[1].copy()
             )
-        elif approved_template.layout == "verdict":
-            _render_verdict_body(
-                body_draw,
+        if cover_background is None:
+            _render_cover(
+                ImageDraw.Draw(cover),
                 value,
                 approved_template,
                 font_path,
+                illustration_structure,
             )
         else:
-            raise VisualRenderError("invalid_template")
+            _render_generated_cover(
+                cover,
+                value,
+                approved_template,
+                font_path,
+            )
+        if body_backgrounds[0] is None:
+            body_draw = ImageDraw.Draw(body)
+            if approved_template.layout == "split":
+                _render_split_body(
+                    body_draw,
+                    value,
+                    approved_template,
+                    font_path,
+                )
+            elif approved_template.layout == "verdict":
+                _render_verdict_body(
+                    body_draw,
+                    value,
+                    approved_template,
+                    font_path,
+                )
+            else:
+                raise VisualRenderError("invalid_template")
+        if secondary_body is not None and body_backgrounds[1] is None:
+            _render_takeaway_body(
+                ImageDraw.Draw(secondary_body),
+                value,
+                approved_template,
+                font_path,
+            )
 
         # Both images are complete in memory before any filesystem mutation.
         cover_output.parent.mkdir(parents=True, exist_ok=True)
         body_output.parent.mkdir(parents=True, exist_ok=True)
+        if secondary_output is not None:
+            secondary_output.parent.mkdir(parents=True, exist_ok=True)
         cover.save(
             cover_output,
             format="JPEG",
@@ -657,6 +912,8 @@ def render_visuals(
             optimize=True,
         )
         body.save(body_output, format="PNG", optimize=True)
+        if secondary_body is not None and secondary_output is not None:
+            secondary_body.save(secondary_output, format="PNG", optimize=True)
     except VisualRenderError:
         raise
     except (OSError, TypeError, ValueError):
@@ -666,3 +923,5 @@ def render_visuals(
             cover.close()
         if body is not None:
             body.close()
+        if secondary_body is not None:
+            secondary_body.close()

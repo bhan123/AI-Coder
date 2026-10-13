@@ -1,0 +1,10 @@
+[Unit]
+Description=Signal Forge independent review reports and closing evidence
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/tail-stock-lab
+ExecStart=/usr/bin/docker compose exec -T tail-stock-lab python scripts/run_review_reports.py --lookback-days 7 --max-jobs 50
+TimeoutStartSec=600

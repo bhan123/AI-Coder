@@ -1,0 +1,56 @@
+{
+  "target": "https://hermes-content-review.taild890b1.ts.net:10000/",
+  "browser": "Edge via Playwright; Browser plugin not available",
+  "runs": [
+    {
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "url": "https://hermes-content-review.taild890b1.ts.net:10000/#review-center",
+      "title": "Signal Forge",
+      "version": "0.6.0",
+      "events": 14,
+      "nextDay": {
+        "close_positive_rate": {
+          "success_count": 5,
+          "eligible_count": 12,
+          "unknown_count": 2,
+          "rate_pct": 41.67,
+          "coverage_pct": 85.71
+        },
+        "definition": "按已公布交易日历的下一交易日收盘高于首次价比例；非交易盈利率。"
+      },
+      "errors": [],
+      "layout": {
+        "width": 1440,
+        "scroll": 1440
+      }
+    },
+    {
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "url": "https://hermes-content-review.taild890b1.ts.net:10000/#review-center",
+      "title": "Signal Forge",
+      "version": "0.6.0",
+      "events": 14,
+      "nextDay": {
+        "close_positive_rate": {
+          "success_count": 5,
+          "eligible_count": 12,
+          "unknown_count": 2,
+          "rate_pct": 41.67,
+          "coverage_pct": 85.71
+        },
+        "definition": "按已公布交易日历的下一交易日收盘高于首次价比例；非交易盈利率。"
+      },
+      "errors": [],
+      "layout": {
+        "width": 390,
+        "scroll": 390
+      }
+    }
+  ]
+}

@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from ai_content_loop.editorial.quality import evaluate_editorial_voice
+from ai_content_loop.editorial.layout_completion import body_paragraphs
 from ai_content_loop.editorial.schema import (
     CORE_FIELDS,
     FINAL_FIELDS,
@@ -62,6 +63,10 @@ _STYLE_WARNINGS = {
     "over_promise",
     "overpromise",
     "missing_source_link",
+    # Platform cadence differs: a reviewer may deliberately accept a concise
+    # adaptation after reading it, so this must inform review rather than
+    # veto human approval.
+    "below_target_length",
     "high_risk_advice",
     "editorial_placeholder",
 }
@@ -105,7 +110,8 @@ _ARTICLE_LAYOUT_COMMAND = re.compile(
 )
 _ARTICLE_LAYOUT_PLAIN_TEXT = re.compile(
     r"^[A-Za-z0-9\u3400-\u4DBF\u4E00-\u9FFF\s"
-    r"，。！？；：、（）“”‘’「」《》〈〉—…·,.!?;:()'\"+/-]+$"
+    r"，。！？；：、（）“”‘’「」《》〈〉—…·,.!?;:()'\"&+/%％"
+    r"→←↑↓–‑−≤≥≈×±-]+$"
 )
 _ARTICLE_LAYOUT_PROTOCOL = re.compile(
     r"(?i)\b[a-z][a-z0-9+.-]{1,31}:(?://|[^\s])"
@@ -141,12 +147,24 @@ _REQUIRED_RICH_LAYOUT_BLOCK_TYPES = {
     "callout",
     "source_note",
 }
+_QUANTIFIED_LAYOUT_CLAIM = re.compile(
+    r"(?:"
+    r"\d+(?:\.\d+)?\s*(?:%|％|个|家|成|倍|元|美元|分钟|小时|天|月|年|次|项|名|人)|"
+    r"[零〇一二三四五六七八九十百千万亿两]+\s*"
+    r"(?:个|家|成|倍|元|美元|分钟|小时|天|月|年|次|项|名|人)"
+    r")"
+)
 
 _NEUTRAL_SOURCE_URL = "https://example.invalid/source"
 _NEUTRAL_BODY = (
     f"这是仅用于验证共享标题且长度足够的中性正文内容。来源：{_NEUTRAL_SOURCE_URL}"
 )
-_TITLE_FAILURES = {"title_too_short", "overpromise", "high_risk_advice"}
+_TITLE_FAILURES = {
+    "title_too_short",
+    "overpromise",
+    "high_risk_advice",
+    "synthetic_title",
+}
 _BODY_FAILURES = {
     "missing_source_link",
     "body_too_short",
@@ -412,9 +430,106 @@ def _rich_layout_failure(
         normalized = _normalized_text(text)
         if normalized not in body:
             return "article_layout:not_grounded_in_body"
-        if normalized not in evidence:
-            return "article_layout:not_grounded_in_fact_evidence"
+        for claim in _QUANTIFIED_LAYOUT_CLAIM.findall(normalized):
+            if claim not in evidence:
+                return "article_layout:not_grounded_in_fact_evidence"
+    layout_text = _normalized_text("\n".join(_article_layout_text_values(layout)))
+    for paragraph in body_paragraphs(
+        master_markdown,
+        title=master_title,
+        source_url=(
+            layout_fact_evidence.get("source_url", "")
+            if isinstance(layout_fact_evidence, dict)
+            else ""
+        ),
+    ):
+        if _normalized_text(paragraph) not in layout_text:
+            return "article_layout:incomplete_body_coverage"
     return None
+
+
+def _retryable_factual_output(failures: list[str]) -> bool:
+    """Retry only malformed model serialization, never schema violations."""
+
+    return bool(failures) and all(
+        failure.startswith("invalid_output:") for failure in failures
+    )
+
+
+def _repair_article_layout_coverage(
+    payload: dict[str, Any],
+    *,
+    requested_layout: dict[str, str],
+    source_url: str,
+    layout_fact_evidence: object,
+) -> bool:
+    """Rebuild a lossless layout from grounded excerpts and the full body.
+
+    This recovery is intentionally narrow.  The caller invokes it only when
+    The caller only permits copy mismatch or incomplete coverage. It never
+    repairs unsafe text, schema failures, or claims missing from locked facts.
+    """
+
+    layout = payload.get("article_layout")
+    master_title = payload.get("master_title")
+    master_markdown = payload.get("master_markdown")
+    if (
+        not isinstance(layout, dict)
+        or not isinstance(master_title, str)
+        or not isinstance(master_markdown, str)
+    ):
+        return False
+
+    body = _normalized_text(f"{master_title}\n{master_markdown}")
+    evidence = _normalized_text(
+        _locked_layout_evidence_text(layout_fact_evidence)
+    )
+    candidates: list[str] = []
+    for text in _article_layout_text_values(layout):
+        normalized = _normalized_text(text)
+        if not normalized or normalized not in body:
+            continue
+        if any(
+            claim not in evidence
+            for claim in _QUANTIFIED_LAYOUT_CLAIM.findall(normalized)
+        ):
+            continue
+        if text not in candidates:
+            candidates.append(text)
+
+    paragraphs = body_paragraphs(
+        master_markdown,
+        title=master_title,
+        source_url=source_url,
+    )
+    if not candidates or not paragraphs:
+        return False
+    excerpts = [candidates[index % len(candidates)] for index in range(5)]
+    payload["article_layout"] = {
+        "theme": requested_layout["theme"],
+        "structure": requested_layout["structure"],
+        "blocks": [
+            {
+                "type": "hero",
+                "title": excerpts[0],
+                "deck": excerpts[1],
+            },
+            {"type": "lead", "text": excerpts[1]},
+            {"type": "key_judgment", "text": excerpts[2]},
+            {
+                "type": "section",
+                "heading": excerpts[0],
+                "paragraphs": paragraphs,
+            },
+            {"type": "callout", "text": excerpts[4]},
+            {
+                "type": "source_note",
+                "url": source_url,
+                "attribution": excerpts[0],
+            },
+        ],
+    }
+    return True
 
 
 def _code_base(failure: str) -> str:
@@ -1326,36 +1441,51 @@ def generate_draft(
     attempt_failures: list[list[str]] = []
     attempts = 0
 
-    factual_prompt = _build_prompt(factual_prompt_template, bundle, [])
-    factual_preflight = _prompt_preflight_failure(
-        factual_prompt,
-        _hermes_argv(hermes_command, factual_prompt),
-    )
+    factual_payload = None
+    factual_failures: list[list[str]] = []
+    factual_attempt_limit = 1 + min(max(int(retries), 0), 1)
+    for factual_attempt in range(factual_attempt_limit):
+        factual_prompt = _build_prompt(
+            factual_prompt_template,
+            bundle,
+            factual_failures,
+        )
+        factual_preflight = _prompt_preflight_failure(
+            factual_prompt,
+            _hermes_argv(hermes_command, factual_prompt),
+        )
+        if factual_preflight is not None:
+            attempt_failures.append([factual_preflight])
+            break
 
-    if factual_preflight is not None:
-        attempt_failures.append([factual_preflight])
-        factual_payload = None
-    else:
         attempts += 1
-        factual_payload, failures = _run_hermes_json(
+        candidate, failures = _run_hermes_json(
             prompt=factual_prompt,
             hermes_command=hermes_command,
             timeout_seconds=timeout_seconds,
             runner=runner,
         )
-        if factual_payload is not None:
+        if candidate is not None:
             hard, _warnings = validate_factual_payload(
-                factual_payload,
+                candidate,
                 dedupe_key=dedupe_key,
                 source_url=source_url,
             )
-        else:
-            if failures:
-                attempt_failures.append(_bounded_machine_failures(failures))
-            hard = []
-        if hard:
-            attempt_failures.append(_bounded_machine_failures(hard))
-            factual_payload = None
+            if not hard:
+                factual_payload = candidate
+                break
+            bounded = _bounded_machine_failures(hard)
+            attempt_failures.append(bounded)
+            break
+
+        bounded = _bounded_machine_failures(failures)
+        attempt_failures.append(bounded)
+        if (
+            factual_attempt + 1 >= factual_attempt_limit
+            or not _retryable_factual_output(bounded)
+        ):
+            break
+        factual_failures.append(bounded)
 
     if factual_payload is not None:
         sources = bundle.get("sources")
@@ -1424,6 +1554,33 @@ def generate_draft(
                     ):
                         if failure not in hard:
                             hard.append(failure)
+                    repairable_layout_failures = {
+                        "article_layout:not_grounded_in_body",
+                        "article_layout:incomplete_body_coverage",
+                    }
+                    if (
+                        hard
+                        and set(hard).issubset(repairable_layout_failures)
+                        and _repair_article_layout_coverage(
+                            payload,
+                            requested_layout=requested_article_layout,
+                            source_url=source_url,
+                            layout_fact_evidence=bundle,
+                        )
+                    ):
+                        hard, warnings = validate_generation_payload(
+                            payload,
+                            dedupe_key=dedupe_key,
+                            source_url=source_url,
+                            require_rich_layout=True,
+                            layout_fact_evidence=bundle,
+                        )
+                        for failure in _article_layout_request_failures(
+                            payload,
+                            requested_article_layout,
+                        ):
+                            if failure not in hard:
+                                hard.append(failure)
                     # Inject style warnings into editorial_profile so the review
                     # desk can display them without blocking the article.
                     if "editorial_profile" in payload and warnings:

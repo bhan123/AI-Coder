@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -17,13 +18,23 @@ from ai_content_loop.models import CandidateScore, SourceItem
 from ai_content_loop.visuals.renderer import BODY_SIZE, COVER_SIZE
 
 
-def write_config(tmp_path: Path, *, publish_limit: int = 2) -> Path:
+def write_config(
+    tmp_path: Path,
+    *,
+    publish_limit: int = 2,
+    scoring_llm_limit: int = 0,
+    scoring_llm_batch_size: int = 10,
+    scoring_llm_timeout_seconds: int = 180,
+) -> Path:
     config_path = tmp_path / "config.toml"
     config_path.write_text(
         f"""
 database_path = "content.sqlite3"
 output_dir = "out"
 publish_limit = {publish_limit}
+scoring_llm_limit = {scoring_llm_limit}
+scoring_llm_batch_size = {scoring_llm_batch_size}
+scoring_llm_timeout_seconds = {scoring_llm_timeout_seconds}
 hermes_command = "custom-hermes"
 generation_timeout_seconds = 321
 generation_retries = 2
@@ -110,6 +121,12 @@ def write_test_visuals(**kwargs) -> None:
         kwargs["body_path"],
         format="PNG",
     )
+    secondary = kwargs.get("secondary_body_path")
+    if secondary is not None:
+        Image.new("RGB", BODY_SIZE, "gray").save(
+            secondary,
+            format="PNG",
+        )
 
 
 def rendered_visual_payload(
@@ -265,6 +282,94 @@ producthunt = 1
     assert "ingested 1 source items" in output
 
 
+def test_ingest_uses_named_filtered_rss_feed(tmp_path: Path, monkeypatch):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+database_path = "content.sqlite3"
+output_dir = "out"
+
+[[rss_feeds]]
+name = "rss_appinn_ai"
+url = "https://www.appinn.com/feed/"
+include_keywords = ["AI", "ChatGPT"]
+limit = 7
+category = "practical"
+""",
+        encoding="utf-8",
+    )
+    rss_item = SourceItem(
+        source="rss_appinn_ai",
+        external_id="post-1",
+        title="普通人可用的 AI 工具",
+        url="https://example.com/post-1",
+        summary="省时间",
+        published_at="2026-07-22T00:00:00Z",
+        fetched_at="now",
+        raw={},
+    )
+    monkeypatch.setattr(cli, "fetch_github_repositories", lambda *args, **kwargs: [])
+    monkeypatch.setattr(cli, "fetch_hackernews_show", lambda *args, **kwargs: [])
+    monkeypatch.setattr(cli, "fetch_arxiv_ai", lambda *args, **kwargs: [])
+    monkeypatch.setattr(cli, "fetch_modelscope_models", lambda *args, **kwargs: [])
+    monkeypatch.setattr(cli, "fetch_producthunt_posts", lambda *args, **kwargs: [])
+    calls = []
+
+    def fake_rss(url, source_name, fetched_at, include_keywords=(), limit=None):
+        calls.append((url, source_name, include_keywords, limit))
+        return [rss_item]
+
+    monkeypatch.setattr(cli, "fetch_rss_feed", fake_rss)
+
+    cli.cmd_ingest(argparse.Namespace(config=str(config_path)))
+
+    rows = ContentStore(tmp_path / "content.sqlite3").list_source_items(limit=10)
+    assert [row.dedupe_key for row in rows] == ["rss_appinn_ai:post-1"]
+    assert calls == [
+        (
+            "https://www.appinn.com/feed/",
+            "rss_appinn_ai",
+            ("AI", "ChatGPT"),
+            7,
+        )
+    ]
+
+
+def test_ingest_does_not_call_disabled_research_sources(tmp_path: Path, monkeypatch):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+database_path = "content.sqlite3"
+output_dir = "out"
+
+[source_limits]
+github = 0
+hackernews = 0
+arxiv = 0
+modelscope = 0
+producthunt = 0
+""",
+        encoding="utf-8",
+    )
+
+    calls = []
+
+    def disabled(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("disabled source was called")
+
+    monkeypatch.setattr(cli, "fetch_github_repositories", disabled)
+    monkeypatch.setattr(cli, "fetch_hackernews_show", disabled)
+    monkeypatch.setattr(cli, "fetch_arxiv_ai", disabled)
+    monkeypatch.setattr(cli, "fetch_modelscope_models", disabled)
+    monkeypatch.setattr(cli, "fetch_producthunt_posts", disabled)
+
+    cli.cmd_ingest(argparse.Namespace(config=str(config_path)))
+
+    assert calls == []
+    assert ContentStore(tmp_path / "content.sqlite3").list_source_items(10) == []
+
+
 def test_build_queue_marks_new_rows_as_needs_generation(
     tmp_path: Path, monkeypatch
 ):
@@ -325,6 +430,242 @@ def test_build_queue_excludes_queued_item_without_rewriting_status(tmp_path: Pat
     assert rows[queued_item.dedupe_key]["status"] == "generation_failed"
     assert rows[queued_item.dedupe_key]["bundle_path"] == "existing/bundle.json"
     assert rows[unqueued_item.dedupe_key]["status"] == "needs_generation"
+
+
+def test_score_and_build_queue_require_explicit_llm_recommendation(
+    tmp_path: Path, monkeypatch
+):
+    config_path = write_config(
+        tmp_path, publish_limit=2, scoring_llm_limit=2
+    )
+    store = ContentStore(tmp_path / "content.sqlite3")
+    store.initialize()
+    useful = make_item(external_id="owner/useful", title="Useful AI app")
+    technical = make_item(external_id="owner/paper", title="Technical AI paper")
+    store.upsert_source_items([useful, technical])
+    monkeypatch.setattr(
+        cli,
+        "llm_score_items",
+        lambda *args, **kwargs: [
+            {
+                "dedupe_key": useful.dedupe_key,
+                "recommended": True,
+                "total_score": 85,
+                "scores": {"clarity": 9, "usefulness": 9},
+                "column": "AI 神器发现",
+                "angle": "普通人今天就能用",
+                "reason": "门槛低",
+            }
+        ],
+    )
+
+    cli.cmd_score(argparse.Namespace(config=str(config_path)))
+    cli.cmd_build_queue(argparse.Namespace(config=str(config_path)))
+
+    rows = store.list_publish_queue()
+    assert [row["dedupe_key"] for row in rows] == [useful.dedupe_key]
+
+
+def test_score_skips_queued_candidates_and_stops_after_enough_new_recommendations(
+    tmp_path: Path, monkeypatch
+):
+    config_path = write_config(
+        tmp_path,
+        publish_limit=1,
+        scoring_llm_limit=3,
+        scoring_llm_batch_size=1,
+        scoring_llm_timeout_seconds=123,
+    )
+    store = ContentStore(tmp_path / "content.sqlite3")
+    store.initialize()
+    queued = make_item(external_id="owner/queued", title="Queued AI app")
+    first_new = make_item(external_id="owner/first", title="First new AI app")
+    second_new = make_item(external_id="owner/second", title="Second new AI app")
+    store.upsert_source_items([queued, first_new, second_new])
+    store.upsert_publish_queue(
+        dedupe_key=queued.dedupe_key,
+        title=queued.title,
+        column_name="AI discoveries",
+        status="needs_human_review",
+        bundle_path="queued.json",
+    )
+    monkeypatch.setattr(
+        cli,
+        "score_items",
+        lambda _items: [
+            make_score(queued, total=90.0),
+            make_score(first_new, total=80.0),
+            make_score(second_new, total=70.0),
+        ],
+    )
+    calls: list[tuple[list[str], int]] = []
+
+    def fake_llm_score(candidates, **kwargs):
+        calls.append(
+            ([candidate["dedupe_key"] for candidate in candidates], kwargs["timeout_seconds"])
+        )
+        if candidates[0]["dedupe_key"] == first_new.dedupe_key:
+            return []
+        return [
+            {
+                "dedupe_key": second_new.dedupe_key,
+                "recommended": True,
+                "total_score": 85,
+                "scores": {},
+                "column": "AI discoveries",
+                "angle": "A concrete benefit",
+                "reason": "Useful",
+            }
+        ]
+
+    monkeypatch.setattr(cli, "llm_score_items", fake_llm_score)
+
+    cli.cmd_score(argparse.Namespace(config=str(config_path)))
+
+    assert calls == [
+        ([first_new.dedupe_key], 123),
+        ([second_new.dedupe_key], 123),
+    ]
+    ranked = store.list_ranked_candidates(
+        limit=10, exclude_queued=True, recommended_only=True
+    )
+    assert [row["dedupe_key"] for row in ranked] == [second_new.dedupe_key]
+
+
+def test_score_filters_reviewed_candidates_before_daily_limit(
+    tmp_path: Path, monkeypatch
+):
+    config_path = write_config(
+        tmp_path,
+        publish_limit=1,
+        scoring_llm_limit=1,
+        scoring_llm_batch_size=1,
+    )
+    store = ContentStore(tmp_path / "content.sqlite3")
+    store.initialize()
+
+    eligible = SourceItem(
+        source="github",
+        external_id="owner/eligible",
+        title="Eligible older candidate",
+        url="https://github.com/owner/eligible",
+        summary="A useful unreviewed AI automation app",
+        published_at="2026-07-01T00:00:00Z",
+        fetched_at="2026-07-01T00:00:00Z",
+        raw={"stars": 10},
+    )
+    reviewed = [
+        SourceItem(
+            source="github",
+            external_id=f"owner/reviewed-{index:03d}",
+            title=f"Reviewed candidate {index:03d}",
+            url=f"https://github.com/owner/reviewed-{index:03d}",
+            summary="Already reviewed AI automation app",
+            published_at="2026-08-01T00:00:00Z",
+            fetched_at=f"2026-08-06T00:{index // 60:02d}:{index % 60:02d}Z",
+            raw={"stars": 10},
+        )
+        for index in range(200)
+    ]
+    store.upsert_source_items([eligible, *reviewed])
+    store.upsert_scores([make_score(item) for item in reviewed])
+    store.record_llm_recommendations(
+        reviewed_keys=[item.dedupe_key for item in reviewed],
+        recommended_keys=[],
+    )
+
+    calls: list[list[str]] = []
+
+    def fake_llm_score(candidates, **_kwargs):
+        calls.append([candidate["dedupe_key"] for candidate in candidates])
+        return [
+            {
+                "dedupe_key": eligible.dedupe_key,
+                "recommended": True,
+                "total_score": 85,
+                "scores": {},
+                "column": "AI discoveries",
+                "angle": "A concrete benefit",
+                "reason": "Useful",
+            }
+        ]
+
+    monkeypatch.setattr(cli, "llm_score_items", fake_llm_score)
+
+    cli.cmd_score(argparse.Namespace(config=str(config_path)))
+
+    assert calls == [[eligible.dedupe_key]]
+    ranked = store.list_ranked_candidates(
+        limit=10, exclude_queued=True, recommended_only=True
+    )
+    assert [row["dedupe_key"] for row in ranked] == [eligible.dedupe_key]
+
+
+def test_score_timeout_keeps_previous_successful_recommendation(
+    tmp_path: Path, monkeypatch
+):
+    config_path = write_config(
+        tmp_path, publish_limit=1, scoring_llm_limit=1, scoring_llm_batch_size=1
+    )
+    store = ContentStore(tmp_path / "content.sqlite3")
+    store.initialize()
+    item = make_item(external_id="owner/already-vetted", title="Already vetted AI app")
+    store.upsert_source_items([item])
+    store.upsert_scores([make_score(item, total=80.0)])
+    store.record_llm_recommendations(
+        reviewed_keys=[item.dedupe_key], recommended_keys=[item.dedupe_key]
+    )
+    monkeypatch.setattr(
+        cli, "score_items", lambda _items: [make_score(item, total=80.0)]
+    )
+    monkeypatch.setattr(cli, "llm_score_items", lambda *args, **kwargs: None)
+
+    cli.cmd_score(argparse.Namespace(config=str(config_path)))
+
+    ranked = store.list_ranked_candidates(
+        limit=10, exclude_queued=True, recommended_only=True
+    )
+    assert [row["dedupe_key"] for row in ranked] == [item.dedupe_key]
+
+
+@pytest.mark.parametrize("llm_result", [[], None])
+def test_score_and_build_queue_fail_closed_without_recommendations(
+    tmp_path: Path, monkeypatch, llm_result
+):
+    config_path = write_config(
+        tmp_path, publish_limit=2, scoring_llm_limit=2
+    )
+    store = ContentStore(tmp_path / "content.sqlite3")
+    store.initialize()
+    item = make_item(external_id="owner/technical", title="Technical AI paper")
+    store.upsert_source_items([item])
+    monkeypatch.setattr(
+        cli, "llm_score_items", lambda *args, **kwargs: llm_result
+    )
+
+    cli.cmd_score(argparse.Namespace(config=str(config_path)))
+    cli.cmd_build_queue(argparse.Namespace(config=str(config_path)))
+
+    assert store.list_publish_queue() == []
+
+
+def test_balanced_candidates_prioritize_practical_and_cap_research():
+    candidates = [
+        {"dedupe_key": "arxiv:1", "source": "arxiv", "total": 99},
+        {"dedupe_key": "modelscope:2", "source": "modelscope", "total": 98},
+        {
+            "dedupe_key": "rss_appinn_ai:3",
+            "source": "rss_appinn_ai",
+            "total": 80,
+        },
+    ]
+
+    selected = cli.select_balanced_candidates(candidates, limit=2)
+
+    assert [item["dedupe_key"] for item in selected] == [
+        "rss_appinn_ai:3",
+        "arxiv:1",
+    ]
 
 
 def test_generate_drafts_marks_generated_as_needs_human_review(
@@ -733,14 +1074,14 @@ def test_generate_drafts_isolates_invalid_bundle_and_continues(
         prompt = argv[-1]
         model_prompts.append(prompt)
 
-        if "Prompt version: factual-v9" in prompt:
+        if "Prompt version: factual-v11" in prompt:
             if len(model_prompts) != 1:
                 raise AssertionError(
                     "unexpected factual prompt call "
                     f"{len(model_prompts)}: {prompt[:300]!r}"
                 )
             payload = good_factual_payload
-        elif "Prompt version: editorial-v17" in prompt:
+        elif "Prompt version: editorial-v22" in prompt:
             if len(model_prompts) != 2:
                 raise AssertionError(
                     "unexpected editorial prompt call "
@@ -779,8 +1120,8 @@ def test_generate_drafts_isolates_invalid_bundle_and_continues(
     run_generate_drafts(config_path)
 
     assert len(model_prompts) == 2
-    assert "Prompt version: factual-v9" in model_prompts[0]
-    assert "Prompt version: editorial-v17" in model_prompts[1]
+    assert "Prompt version: factual-v11" in model_prompts[0]
+    assert "Prompt version: editorial-v22" in model_prompts[1]
 
     rows = {
         row["dedupe_key"]: row["status"]
@@ -1051,6 +1392,21 @@ def test_generate_assets_uses_safe_final_name_not_database_bundle_path(
         encoding="utf-8",
     )
     calls = []
+    class FakeImageClient:
+        def identity_for_prompt(self, prompt, *, aspect_ratio="21:9"):
+            return {
+                "provider": "minimax",
+                "model": "image-01",
+                "prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest(),
+                "seed": 1,
+            }
+
+    image_client = FakeImageClient()
+    monkeypatch.setattr(
+        cli,
+        "client_from_env",
+        lambda _environ: image_client,
+    )
 
     def fake_generate(*, final_path, **kwargs):
         calls.append((final_path, kwargs))
@@ -1072,6 +1428,7 @@ def test_generate_assets_uses_safe_final_name_not_database_bundle_path(
                 "font_path": font_path,
                     "template_name": None,
                     "copy_index": 0,
+                    "image_client": image_client,
                     "expected_version": cli.payload_version(
                         cli.coerce_reviewable_final_payload(
                             visual_payload(dedupe_key)
@@ -1105,8 +1462,8 @@ def test_generate_assets_skips_only_valid_published_revision(
     monkeypatch.setattr(
         cli,
         "validate_payload_revision",
-        lambda payload, output_dir, font_path: validations.append(
-            (payload["dedupe_key"], output_dir, font_path)
+        lambda payload, output_dir, font_path, **kwargs: validations.append(
+            (payload["dedupe_key"], output_dir, font_path, kwargs)
         ),
     )
     monkeypatch.setattr(
@@ -1118,7 +1475,12 @@ def test_generate_assets_skips_only_valid_published_revision(
     cli.cmd_generate_assets(argparse.Namespace(config=str(config_path)))
 
     assert validations == [
-        ("github:owner/repo", cfg.output_dir, cfg.visual_font_path)
+        (
+            "github:owner/repo",
+            cfg.output_dir,
+            cfg.visual_font_path,
+            {"image_source": None},
+        )
     ]
     assert capsys.readouterr().out == "generated 0, skipped 1, failed 0\n"
 
@@ -1254,8 +1616,9 @@ def test_generate_assets_rewrites_noncanonical_body_marker(
 
     updated = json.loads(final_path.read_text(encoding="utf-8"))
     assert updated["platform_markdown"]["wechat"] == (
-        "Useful WeChat body\n\n"
-        "{{asset:body-01}}\n"
+        "Useful WeChat body\n"
+        "{{asset:body-01}}\n\n"
+        "{{asset:body-02}}\n"
         "来源：https://example.test"
     )
     assert {
@@ -1349,8 +1712,9 @@ def test_generate_assets_marker_repair_preserves_visual_selection(
     updated = json.loads(final_path.read_text(encoding="utf-8"))
     assert updated["visual_assets"]["cover"] == original_cover
     assert updated["platform_markdown"]["wechat"] == (
-        "Useful WeChat body\n\n"
-        "{{asset:body-01}}\n"
+        "Useful WeChat body\n"
+        "{{asset:body-01}}\n\n"
+        "{{asset:body-02}}\n"
         "来源：https://example.test"
     )
     assert len(render_calls) == 1

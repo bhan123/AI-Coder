@@ -1,0 +1,22 @@
+# Cocos Creator 自动生成，首次打开项目时由编辑器重建
+library/
+temp/
+local/
+build/
+native/
+profiles/*/data/
+
+# Node
+node_modules/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# 日志
+*.log
+
+# 用户私有配置
+settings/v2/packages/scene.json

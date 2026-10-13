@@ -1,0 +1,20 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+.env
+.env.local
+
+# SQLite 数据库 - 设计文档明确放 data/，不进 git
+data/*.db
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+
+# 日志与爬虫中间产物
+*.log
+crawl_dump/

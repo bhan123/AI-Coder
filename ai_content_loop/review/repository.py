@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+from copy import deepcopy
 from datetime import UTC, datetime
 import hmac
 import json
@@ -25,6 +26,11 @@ from ai_content_loop.editorial.schema import (
     payload_version,
 )
 from ai_content_loop.generation import validate_generation_payload
+from ai_content_loop.gpt_polish import (
+    GptPolishProposalError,
+    candidate_payload,
+)
+from ai_content_loop.editorial.reader_feedback import evaluate_reader_feedback
 from ai_content_loop.visuals.pipeline import (
     has_canonical_body_asset_marker,
 )
@@ -229,6 +235,13 @@ class ArticleRepository:
             queue_row = queue.get(payload["dedupe_key"])
             if status is not None and queue_row is None:
                 continue
+            version = _version(payload)
+            gpt_polish = self.store.latest_gpt_polish_job(
+                payload["dedupe_key"]
+            )
+            wechat_draft = self.store.get_wechat_draft_sync(
+                payload["dedupe_key"], version
+            )
             rows.append(
                 {
                     "article_id": article_id,
@@ -243,6 +256,14 @@ class ArticleRepository:
                     ),
                     "generated_date": _date_part(
                         queue_row["created_at"] if queue_row is not None else None
+                    ),
+                    "gpt_polish_status": (
+                        gpt_polish["status"] if gpt_polish is not None else None
+                    ),
+                    "wechat_draft_status": (
+                        wechat_draft["status"]
+                        if wechat_draft is not None
+                        else "not_synced"
                     ),
                 }
             )
@@ -331,7 +352,7 @@ class ArticleRepository:
                 output_dir=self.final_dir.parent,
                 article_id=article_id,
             ):
-                if operation not in {"edit", "restore", "visual_edit"}:
+                if operation not in {"edit", "restore", "visual_edit", "gpt_polish"}:
                     raise ValueError(f"unsupported history operation: {operation}")
                 path, current = self._find(article_id)
                 current_version = _version(current)
@@ -381,6 +402,131 @@ class ArticleRepository:
                 )
                 _atomic_json_write(path, replacement)
                 return self.load_article(article_id)
+
+    def request_gpt_polish(
+        self,
+        article_id: str,
+        expected_version: str,
+    ) -> dict[str, Any]:
+        _, payload = self._find(article_id)
+        current_version = _version(payload)
+        if not isinstance(expected_version, str) or not hmac.compare_digest(
+            current_version, expected_version
+        ):
+            raise ArticleConflict(article_id)
+        source_url = self.store.get_source_url(payload["dedupe_key"])
+        if source_url is None:
+            raise InvalidArticle("missing source metadata")
+        request = {
+            "article_id": article_id,
+            "base_version": current_version,
+            "source_url": source_url,
+            "master_title": payload["master_title"],
+            "master_markdown": payload["master_markdown"],
+            "platform_markdown": deepcopy(payload["platform_markdown"]),
+            "layout": {
+                "theme": payload["article_layout"]["theme"],
+                "structure": payload["article_layout"]["structure"],
+            },
+            "rule_feedback": {
+                "master": evaluate_reader_feedback(
+                    payload["master_title"], payload["master_markdown"]
+                ),
+                "platforms": {
+                    platform: evaluate_reader_feedback(
+                        payload["master_title"], markdown
+                    )
+                    for platform, markdown in payload["platform_markdown"].items()
+                },
+            },
+        }
+        return self.store.create_gpt_polish_job(
+            payload["dedupe_key"], current_version, request
+        )
+
+    def gpt_polish_status(self, article_id: str) -> dict[str, Any] | None:
+        _, payload = self._find(article_id)
+        return self.store.latest_gpt_polish_job(payload["dedupe_key"])
+
+    def apply_gpt_polish(
+        self,
+        article_id: str,
+        job_id: str,
+        expected_version: str,
+    ) -> dict[str, object]:
+        _, current = self._find(article_id)
+        job = self.store.get_gpt_polish_job(job_id)
+        if (
+            job is None
+            or job["dedupe_key"] != current["dedupe_key"]
+            or job["status"] != "ready"
+            or job["proposal"] is None
+        ):
+            raise ArticleNotFound(job_id)
+        current_version = _version(current)
+        if (
+            not isinstance(expected_version, str)
+            or not hmac.compare_digest(current_version, expected_version)
+            or not hmac.compare_digest(str(job["base_version"]), current_version)
+        ):
+            raise ArticleConflict(article_id)
+        source_url = self.store.get_source_url(current["dedupe_key"])
+        if source_url is None:
+            raise InvalidArticle("missing source metadata")
+        try:
+            replacement, _normalized = candidate_payload(
+                current,
+                job["proposal"],
+                source_url=source_url,
+            )
+        except GptPolishProposalError as error:
+            raise InvalidArticle(str(error)) from error
+        replacement = _validate_payload(
+            replacement,
+            expected_dedupe_key=current["dedupe_key"],
+        )
+        hard, _warnings = validate_generation_payload(
+            replacement,
+            dedupe_key=current["dedupe_key"],
+            source_url=source_url,
+        )
+        blocked = [
+            failure
+            for failure in hard
+            if failure != "nonempty_visual_assets"
+            and not failure.endswith(":below_target_length")
+        ]
+        if blocked:
+            raise InvalidArticle(f"gpt_polish:{blocked[0]}")
+        result = self.save_article(
+            article_id,
+            replacement,
+            expected_version,
+            operation="gpt_polish",
+        )
+        self.store.set_review_status(
+            current["dedupe_key"], "needs_human_review"
+        )
+        if not self.store.transition_gpt_polish_job(
+            job_id, "ready", "applied"
+        ):
+            raise ArticleConflict(article_id)
+        result["gpt_polish"] = self.gpt_polish_status(article_id)
+        return result
+
+    def discard_gpt_polish(self, article_id: str, job_id: str) -> dict[str, Any]:
+        _, payload = self._find(article_id)
+        job = self.store.get_gpt_polish_job(job_id)
+        if (
+            job is None
+            or job["dedupe_key"] != payload["dedupe_key"]
+            or job["status"] != "ready"
+            or not self.store.transition_gpt_polish_job(
+                job_id, "ready", "discarded"
+            )
+        ):
+            raise ArticleNotFound(job_id)
+        return self.store.get_gpt_polish_job(job_id) or {}
 
     def list_history(self, article_id: str) -> list[dict[str, str]]:
         self._find(article_id)
@@ -554,21 +700,33 @@ class ArticleRepository:
 
                 references = self.asset_references(article_id)
                 cover = references.get("cover")
-                body = references.get("body-01")
-                if cover is None or body is None:
+                bodies = [
+                    reference
+                    for asset_id, reference in sorted(references.items())
+                    if asset_id.startswith("body-")
+                ]
+                if cover is None or not bodies:
                     raise InvalidArticle(
                         "approved article is missing WeChat visual assets"
                     )
                 cover_path = self.asset_path(
                     article_id, "cover", str(cover["revision"])
                 )
-                body_path = self.asset_path(
-                    article_id, "body-01", str(body["revision"])
-                )
+                body_paths = [
+                    self.asset_path(
+                        article_id,
+                        str(body["asset_id"]),
+                        str(body["revision"]),
+                    )
+                    for body in bodies
+                ]
                 try:
                     token = client.get_access_token()
                     cover_media_id = client.upload_permanent_image(token, cover_path)
-                    body_url = client.upload_body_image(token, body_path)
+                    body_urls = [
+                        client.upload_body_image(token, body_path)
+                        for body_path in body_paths
+                    ]
                     platform_markdown = payload.get("platform_markdown", {})
                     fallback_markdown = (
                         platform_markdown.get("wechat", "")
@@ -579,7 +737,7 @@ class ArticleRepository:
                         payload.get("article_layout"),
                         fallback_title=payload.get("master_title"),
                         fallback_markdown=fallback_markdown,
-                        body_image_url=body_url,
+                        body_image_urls=body_urls,
                     )
                 except WechatApiError as error:
                     self.store.record_wechat_draft_sync(
@@ -652,7 +810,11 @@ class ArticleRepository:
             images.append(
                 (
                     f"data:{media_type};base64,{encoded}",
-                    "文章封面" if reference["asset_id"] == "cover" else "正文配图",
+                    (
+                        "文章封面"
+                        if reference["asset_id"] == "cover"
+                        else f"正文配图 {str(reference['asset_id']).removeprefix('body-')}"
+                    ),
                 )
             )
         return images
@@ -720,7 +882,7 @@ class ArticleRepository:
         body = assets.get("body")
         if not isinstance(cover, dict):
             hard.append("missing_cover_asset")
-        if not isinstance(body, list) or len(body) != 1:
+        if not isinstance(body, list) or not 1 <= len(body) <= 3:
             hard.append("missing_body_asset")
         if not has_canonical_body_asset_marker(payload):
             hard.append("missing_body_asset_marker")
@@ -733,13 +895,17 @@ class ArticleRepository:
                 )
             except (ArticleNotFound, KeyError):
                 hard.append("missing_cover_file")
-        if isinstance(body, list) and len(body) == 1 and isinstance(body[0], dict):
-            try:
-                self.asset_path(
-                    article_id,
-                    str(body[0]["asset_id"]),
-                    str(body[0]["revision"]),
-                )
-            except (ArticleNotFound, KeyError):
-                hard.append("missing_body_file")
+        if isinstance(body, list) and 1 <= len(body) <= 3:
+            for reference in body:
+                if not isinstance(reference, dict):
+                    hard.append("missing_body_file")
+                    continue
+                try:
+                    self.asset_path(
+                        article_id,
+                        str(reference["asset_id"]),
+                        str(reference["revision"]),
+                    )
+                except (ArticleNotFound, KeyError):
+                    hard.append("missing_body_file")
         return list(dict.fromkeys(hard))

@@ -1,0 +1,48 @@
+# 封面视觉模板
+#
+# 选择是确定性的：给了合法 template_hint 就用它，否则按文章 dedupe_key 的
+# 哈希选一个。同一篇文章永远拿到同一个模板，重跑配图不会换风格。
+#
+# layout 决定 Pillow 的排版方式，只能是以下三种之一：
+#   split    —— 左右两栏对比（配 visual_brief 的两个 panel）
+#   verdict  —— 单栏结论卡（一句话判断 + 强调色块）
+#   takeaway —— 要点卡（用于第二张正文配图）
+#
+# 三个颜色都必须是 #RRGGBB。background 是底色，accent 是强调色（标签、色块），
+# foreground 是主文字色——请自行确认 foreground 与 background 的对比度足够。
+
+[templates.boss_vs_worker]
+layout = "split"
+background = "#FFF7E8"
+accent = "#E54B4B"
+foreground = "#172033"
+
+[templates.expectation_vs_reality]
+layout = "split"
+background = "#F4F1FF"
+accent = "#6D5EF7"
+foreground = "#172033"
+
+[templates.ai_done_vs_tests]
+layout = "split"
+background = "#07111F"
+accent = "#43F0B6"
+foreground = "#FFFFFF"
+
+[templates.before_vs_after]
+layout = "split"
+background = "#EDF7FF"
+accent = "#1473E6"
+foreground = "#172033"
+
+[templates.do_vs_dont]
+layout = "split"
+background = "#F8FAFC"
+accent = "#F59E0B"
+foreground = "#172033"
+
+[templates.one_line_verdict]
+layout = "verdict"
+background = "#111827"
+accent = "#FDE047"
+foreground = "#FFFFFF"

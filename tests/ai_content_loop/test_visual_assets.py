@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 import hashlib
+from io import BytesIO
 import json
 from pathlib import Path
 import threading
@@ -106,6 +107,12 @@ def fake_renderer(**kwargs) -> None:
         kwargs["body_path"],
         format="PNG",
     )
+    secondary = kwargs.get("secondary_body_path")
+    if secondary is not None:
+        Image.new("RGB", BODY_SIZE, "gray").save(
+            secondary,
+            format="PNG",
+        )
 
 
 def test_article_id_for_is_stable_opaque_and_secret_safe():
@@ -135,6 +142,25 @@ def test_schema_accepts_exact_rendered_asset_references():
     assert normalized["visual_assets"] == rendered_payload()["visual_assets"]
 
 
+def test_schema_accepts_server_generated_hybrid_revision_references():
+    payload = rendered_payload()
+    payload["visual_assets"]["cover"]["ai_generated"] = True
+
+    normalized = schema.normalize_final_payload(payload)
+
+    assert normalized["visual_assets"]["cover"]["ai_generated"] is True
+    assert normalized["visual_assets"]["body"][0]["ai_generated"] is False
+
+
+def test_schema_accepts_ai_generated_body_reference():
+    payload = rendered_payload()
+    payload["visual_assets"]["body"][0]["ai_generated"] = True
+
+    normalized = schema.normalize_final_payload(payload)
+
+    assert normalized["visual_assets"]["body"][0]["ai_generated"] is True
+
+
 @pytest.mark.parametrize(
     ("location", "field", "value"),
     [
@@ -149,7 +175,7 @@ def test_schema_accepts_exact_rendered_asset_references():
         ("cover", "template", "model-controlled-template"),
         ("cover", "copy_index", True),
         ("cover", "copy_index", 3),
-        ("cover", "ai_generated", True),
+        ("cover", "ai_generated", "yes"),
     ],
 )
 def test_schema_rejects_invalid_asset_reference(location, field, value):
@@ -213,15 +239,18 @@ def test_insert_body_asset_marker_falls_back_to_end_and_removes_duplicates():
     normalized = insert_body_asset_marker(payload)
 
     assert normalized["platform_markdown"]["wechat"] == (
-        "Opening\nBody\n\n{{asset:body-01}}"
+        "Opening\n{{asset:body-01}}\nBody\n{{asset:body-02}}"
     )
 
 
 @pytest.mark.parametrize(
     "wechat",
     [
-        "Opening\n\n{{asset:body-01}}\n来源：https://example.test",
-        "Opening\n\n{{asset:body-01}}",
+        (
+            "Opening\n{{asset:body-01}}\n{{asset:body-02}}\n"
+            "来源：https://example.test"
+        ),
+        "Opening\n{{asset:body-01}}\n{{asset:body-02}}",
     ],
     ids=["before-source", "fallback-at-end"],
 )
@@ -236,6 +265,23 @@ def test_canonical_body_marker_check_is_nonmutating(wechat):
 
     assert has_canonical_body_asset_marker(payload) is True
     assert payload == before
+
+
+def test_canonical_body_marker_keeps_legacy_single_body_article_valid():
+    from ai_content_loop.visuals.pipeline import (
+        has_canonical_body_asset_marker,
+        insert_body_asset_marker,
+    )
+
+    payload = rendered_payload()
+    payload["platform_markdown"]["wechat"] = "Opening\nBody"
+    normalized = insert_body_asset_marker(payload)
+
+    assert normalized["platform_markdown"]["wechat"].count(
+        "{{asset:body-01}}"
+    ) == 1
+    assert "{{asset:body-02}}" not in normalized["platform_markdown"]["wechat"]
+    assert has_canonical_body_asset_marker(normalized) is True
 
 
 def test_generate_visual_assets_publishes_immutable_revisions(
@@ -280,6 +326,222 @@ def test_generate_visual_assets_publishes_immutable_revisions(
         "{{asset:body-01}}"
     ) == 1
     assert payload["visual_assets"] == {"cover": None, "body": []}
+
+
+def test_generate_visual_assets_uses_minimax_cover_once_and_marks_revision(
+    tmp_path: Path, monkeypatch
+):
+    from ai_content_loop.visuals import pipeline
+
+    calls = []
+    aspect_ratios = []
+    rendered_backgrounds = []
+    rendered_body_backgrounds = []
+    rendered_structures = []
+
+    class FakeImageClient:
+        model = "image-01"
+
+        def identity_for_prompt(self, prompt, *, aspect_ratio="21:9"):
+            return {
+                "provider": "minimax",
+                "model": self.model,
+                "prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest(),
+                "seed": 42,
+            }
+
+        def generate(self, prompt, *, aspect_ratio="21:9"):
+            calls.append(prompt)
+            aspect_ratios.append(aspect_ratio)
+            buffer = BytesIO()
+            Image.new("RGB", (1344, 576), "navy").save(
+                buffer, format="JPEG"
+            )
+            return buffer.getvalue()
+
+    def renderer(**kwargs):
+        rendered_backgrounds.append(kwargs.get("cover_background"))
+        rendered_body_backgrounds.append(kwargs.get("body_backgrounds"))
+        rendered_structures.append(kwargs.get("illustration_structure"))
+        fake_renderer(**kwargs)
+
+    monkeypatch.setattr(pipeline, "render_visuals", renderer)
+    client = FakeImageClient()
+
+    first = pipeline.generate_visual_assets(
+        payload=valid_payload(),
+        output_dir=tmp_path,
+        font_path=tmp_path / "font.ttc",
+        image_client=client,
+    )
+    second = pipeline.generate_visual_assets(
+        payload=valid_payload(),
+        output_dir=tmp_path,
+        font_path=tmp_path / "font.ttc",
+        image_client=client,
+    )
+
+    assert first == second
+    assert len(calls) == 3
+    assert len(set(calls)) == 3
+    assert aspect_ratios == ["21:9", "16:9", "16:9"]
+    assert rendered_backgrounds[0].size == COVER_SIZE
+    assert tuple(image.size for image in rendered_body_backgrounds[0]) == (
+        BODY_SIZE,
+        BODY_SIZE,
+    )
+    assert rendered_structures == ["hub"]
+    reference = first["visual_assets"]["cover"]
+    assert reference["ai_generated"] is True
+    assert all(
+        reference["ai_generated"] is True
+        for reference in first["visual_assets"]["body"]
+    )
+    article_id = schema.article_id_for(first["dedupe_key"])
+    manifest = json.loads(
+        (
+            tmp_path
+            / "assets"
+            / article_id
+            / reference["revision"]
+            / "manifest.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert manifest["version"] == 4
+    assert manifest["source_kind"] == "minimax_image_set"
+    assert manifest["ai_generated"] is True
+    assert manifest["image_source"]["model"] == "image-01"
+    from ai_content_loop.visuals.assets import validate_payload_revision
+
+    expected_source = pipeline.expected_image_source(
+        payload=first,
+        image_client=client,
+        copy_index=0,
+    )
+    validated = validate_payload_revision(
+        first,
+        tmp_path,
+        tmp_path / "font.ttc",
+        image_source=expected_source,
+    )
+    assert validated["image_source"] == manifest["image_source"]
+    with pytest.raises(
+        pipeline.AssetPublicationError,
+        match="asset_source_mismatch",
+    ):
+        validate_payload_revision(
+            first,
+            tmp_path,
+            tmp_path / "font.ttc",
+        )
+
+
+def test_generate_visual_assets_falls_back_when_minimax_fails(
+    tmp_path: Path, monkeypatch
+):
+    from ai_content_loop.visuals import pipeline
+    from ai_content_loop.visuals.minimax_image import MiniMaxImageError
+
+    backgrounds = []
+
+    class FailingImageClient:
+        def identity_for_prompt(self, prompt, *, aspect_ratio="21:9"):
+            return {
+                "provider": "minimax",
+                "model": "image-01",
+                "prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest(),
+                "seed": 7,
+            }
+
+        def generate(self, _prompt, *, aspect_ratio="21:9"):
+            raise MiniMaxImageError("image_request_failed")
+
+    def renderer(**kwargs):
+        backgrounds.append(kwargs.get("cover_background"))
+        fake_renderer(**kwargs)
+
+    monkeypatch.setattr(pipeline, "render_visuals", renderer)
+
+    rendered = pipeline.generate_visual_assets(
+        payload=valid_payload(),
+        output_dir=tmp_path,
+        font_path=tmp_path / "font.ttc",
+        image_client=FailingImageClient(),
+    )
+
+    assert backgrounds == [None]
+    assert rendered["visual_assets"]["cover"]["ai_generated"] is False
+    article_id = schema.article_id_for(rendered["dedupe_key"])
+    revision = rendered["visual_assets"]["cover"]["revision"]
+    manifest = json.loads(
+        (tmp_path / "assets" / article_id / revision / "manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert manifest["version"] == 2
+    assert manifest["source_kind"] == "original_template"
+
+
+def test_generate_visual_assets_falls_back_per_image_without_discarding_successes(
+    tmp_path: Path, monkeypatch
+):
+    from ai_content_loop.visuals import pipeline
+    from ai_content_loop.visuals.minimax_image import MiniMaxImageError
+
+    rendered = []
+
+    class PartiallyFailingImageClient:
+        model = "image-01"
+
+        def identity_for_prompt(self, prompt, *, aspect_ratio="21:9"):
+            digest = hashlib.sha256(prompt.encode()).hexdigest()
+            return {
+                "provider": "minimax",
+                "model": self.model,
+                "prompt_sha256": digest,
+                "seed": int(digest[:16], 16) & ((1 << 63) - 1),
+            }
+
+        def generate(self, prompt, *, aspect_ratio="21:9"):
+            if "focuses only on: AI writes code" in prompt:
+                raise MiniMaxImageError("image_request_failed")
+            buffer = BytesIO()
+            Image.new("RGB", (1344, 576), "navy").save(buffer, format="JPEG")
+            return buffer.getvalue()
+
+    def renderer(**kwargs):
+        rendered.append(kwargs)
+        fake_renderer(**kwargs)
+
+    monkeypatch.setattr(pipeline, "render_visuals", renderer)
+    client = PartiallyFailingImageClient()
+    result = pipeline.generate_visual_assets(
+        payload=valid_payload(),
+        output_dir=tmp_path,
+        font_path=tmp_path / "font.ttc",
+        image_client=client,
+    )
+
+    assert result["visual_assets"]["cover"]["ai_generated"] is True
+    assert [item["ai_generated"] for item in result["visual_assets"]["body"]] == [
+        False,
+        True,
+    ]
+    assert rendered[0]["body_backgrounds"][0] is None
+    assert rendered[0]["body_backgrounds"][1].size == BODY_SIZE
+    expected_source = pipeline.expected_image_source(
+        payload=result,
+        image_client=client,
+        copy_index=0,
+    )
+    from ai_content_loop.visuals.assets import validate_payload_revision
+
+    validate_payload_revision(
+        result,
+        tmp_path,
+        tmp_path / "font.ttc",
+        image_source=expected_source,
+    )
 
 
 def test_generate_visual_assets_selects_canonical_copy_and_override(
@@ -1142,3 +1404,29 @@ def test_real_renderer_pipeline_integration(tmp_path: Path):
         assert cover.size == COVER_SIZE
     with Image.open(body_path) as body:
         assert body.size == BODY_SIZE
+
+
+def test_new_visual_revision_contains_two_distributed_body_images(
+    tmp_path: Path, monkeypatch
+):
+    from ai_content_loop.visuals import pipeline
+
+    monkeypatch.setattr(pipeline, "render_visuals", fake_renderer)
+    result = pipeline.generate_visual_assets(
+        payload=valid_payload(),
+        output_dir=tmp_path,
+        font_path=tmp_path / "font.ttc",
+    )
+
+    assert [item["asset_id"] for item in result["visual_assets"]["body"]] == [
+        "body-01",
+        "body-02",
+    ]
+    wechat = result["platform_markdown"]["wechat"]
+    assert wechat.count("{{asset:body-01}}") == 1
+    assert wechat.count("{{asset:body-02}}") == 1
+    revision = result["visual_assets"]["cover"]["revision"]
+    article_id = schema.article_id_for(result["dedupe_key"])
+    revision_dir = tmp_path / "assets" / article_id / revision
+    assert (revision_dir / "body.png").is_file()
+    assert (revision_dir / "body-02.png").is_file()

@@ -1,0 +1,16 @@
+[Unit]
+Description=AI content collection and Hermes draft generation
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=agentuser
+Group=agentuser
+WorkingDirectory=/opt/ai-content-loop/repo
+Environment=HOME=/home/agentuser
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/opt/ai-content-loop/image.env
+UMask=0027
+ExecStart=/usr/local/bin/ai-content-loop-run.sh
+TimeoutStartSec=45min

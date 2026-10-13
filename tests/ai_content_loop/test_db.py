@@ -51,6 +51,40 @@ def test_store_upserts_source_item(tmp_path: Path):
     assert rows[0].raw["stars"] == 20
 
 
+def test_store_gpt_polish_job_is_idempotent_claimed_once_and_submitted(tmp_path: Path):
+    store = ContentStore(tmp_path / "content.sqlite3")
+    store.initialize()
+    item = make_item()
+    store.upsert_source_items([item])
+    store.upsert_publish_queue(
+        item.dedupe_key,
+        item.title,
+        "AI discoveries",
+        "needs_human_review",
+        "draft.json",
+    )
+    request = {"article_id": "article-1", "master_markdown": "original"}
+
+    first = store.create_gpt_polish_job(item.dedupe_key, "version-1", request)
+    duplicate = store.create_gpt_polish_job(
+        item.dedupe_key, "version-1", {"ignored": True}
+    )
+    claimed = store.claim_next_gpt_polish_job("windows-codex")
+
+    assert duplicate["job_id"] == first["job_id"]
+    assert claimed["job_id"] == first["job_id"]
+    assert store.claim_next_gpt_polish_job("second-worker") is None
+    assert store.submit_gpt_polish_proposal(
+        first["job_id"], "wrong-worker", {"candidate": "bad"}
+    ) is False
+    assert store.submit_gpt_polish_proposal(
+        first["job_id"], "windows-codex", {"candidate": "ready"}
+    ) is True
+    latest = store.latest_gpt_polish_job(item.dedupe_key)
+    assert latest["status"] == "ready"
+    assert latest["proposal"] == {"candidate": "ready"}
+
+
 def test_store_saves_and_lists_scores(tmp_path: Path):
     store = ContentStore(tmp_path / "content.sqlite3")
     store.initialize()
@@ -64,6 +98,28 @@ def test_store_saves_and_lists_scores(tmp_path: Path):
     assert ranked[0]["dedupe_key"] == "github:owner/repo"
     assert ranked[0]["title"] == "Useful AI Repo"
     assert ranked[0]["total"] == 78.0
+
+
+def test_store_only_lists_candidates_explicitly_recommended_by_llm(tmp_path: Path):
+    store = ContentStore(tmp_path / "content.sqlite3")
+    store.initialize()
+    recommended = make_item(external_id="owner/useful", title="Useful app")
+    rejected = make_item(external_id="owner/technical", title="Technical paper")
+    store.upsert_source_items([recommended, rejected])
+    store.upsert_scores(
+        [make_score(recommended, total=80.0), make_score(rejected, total=95.0)]
+    )
+
+    store.reset_llm_recommendations(
+        [recommended.dedupe_key, rejected.dedupe_key]
+    )
+    store.record_llm_recommendations(
+        reviewed_keys=[recommended.dedupe_key, rejected.dedupe_key],
+        recommended_keys=[recommended.dedupe_key],
+    )
+
+    ranked = store.list_ranked_candidates(limit=5, recommended_only=True)
+    assert [row["dedupe_key"] for row in ranked] == [recommended.dedupe_key]
 
 
 def test_store_excludes_queued_ranked_candidates(tmp_path: Path):
@@ -261,6 +317,42 @@ def test_store_initialize_migrates_legacy_publish_queue(tmp_path: Path):
     assert row["dedupe_key"] == "github:owner/legacy"
     assert row["claimed_at"] is None
     assert row["claim_token"] is None
+
+
+def test_store_initialize_migrates_legacy_candidate_recommendation_columns(
+    tmp_path: Path,
+):
+    database_path = tmp_path / "content.sqlite3"
+    with sqlite3.connect(database_path) as conn:
+        conn.executescript(
+            """
+            CREATE TABLE candidate_scores (
+                dedupe_key TEXT PRIMARY KEY,
+                novelty INTEGER NOT NULL,
+                clarity INTEGER NOT NULL,
+                fun INTEGER NOT NULL,
+                usefulness INTEGER NOT NULL,
+                demo INTEGER NOT NULL,
+                heat INTEGER NOT NULL,
+                credibility INTEGER NOT NULL,
+                total REAL NOT NULL,
+                reason TEXT NOT NULL,
+                scored_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            """
+        )
+
+    store = ContentStore(database_path)
+    store.initialize()
+    store.initialize()
+
+    with store.connect() as conn:
+        columns = {
+            row["name"]: row
+            for row in conn.execute("PRAGMA table_info(candidate_scores)")
+        }
+    assert columns["llm_reviewed"]["dflt_value"] == "0"
+    assert columns["llm_recommended"]["dflt_value"] == "0"
 
 
 def test_store_does_not_requeue_active_generation_claim(tmp_path: Path):

@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#08111e">
+  <title>板块情绪与拥挤度</title>
+  <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+  <header class="app-header">
+    <button id="menu-button" class="icon-button mobile-only" type="button" aria-label="打开板块列表" aria-controls="sector-sidebar" aria-expanded="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+    <div class="brand">板块情绪与拥挤度</div>
+    <div class="header-context">
+      <span>数据日期 <strong id="as-of-date">—</strong></span>
+      <span class="source-freshness" id="source-forum"><i></i>论坛 <b>—</b></span>
+      <span class="source-freshness" id="source-analysis"><i></i>分析 <b>—</b></span>
+      <span class="source-freshness" id="source-price"><i></i>行情 <b>—</b></span>
+    </div>
+    <button id="refresh-button" class="refresh-button" type="button">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 4v7h-7"/></svg>
+      <span>刷新</span>
+    </button>
+  </header>
+
+  <div class="app-shell">
+    <div id="sidebar-overlay" class="sidebar-overlay" hidden></div>
+    <aside id="sector-sidebar" class="sector-sidebar" aria-label="板块筛选">
+      <div class="sidebar-heading">
+        <h1>板块列表</h1>
+        <button id="close-sidebar" class="icon-button mobile-only" type="button" aria-label="关闭板块列表">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+        </button>
+      </div>
+      <label class="search-box">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4 4"/></svg>
+        <span class="sr-only">搜索板块</span>
+        <input id="sector-search" type="search" placeholder="搜索板块" autocomplete="off">
+      </label>
+      <div class="filter-heading">状态筛选</div>
+      <div id="state-filters" class="state-filters" role="group" aria-label="按状态筛选">
+        <button type="button" class="active" data-state="全部">全部</button>
+        <button type="button" data-state="亢奋拥挤">亢奋拥挤</button>
+        <button type="button" data-state="恐慌拥挤">恐慌拥挤</button>
+        <button type="button" data-state="新热启动">新热启动</button>
+        <button type="button" data-state="噪音争吵">噪音争吵</button>
+        <button type="button" data-state="样本不足">样本不足</button>
+      </div>
+      <div class="sector-list-heading"><span>板块</span><span>状态 / 置信度</span></div>
+      <div id="sector-list" class="sector-list" role="listbox" aria-label="板块列表"></div>
+      <div class="sidebar-footer"><span id="sector-count">0 个板块</span><span id="sidebar-updated">尚未更新</span></div>
+    </aside>
+
+    <main class="workspace">
+      <nav class="workspace-tabs" aria-label="工作区视图">
+        <button type="button" class="active" data-view="overview">全景</button>
+        <button type="button" data-view="detail">板块详情</button>
+        <button type="button" data-view="quality">数据质量</button>
+      </nav>
+
+      <div id="page-error" class="page-message error-message" hidden></div>
+      <div id="empty-state" class="empty-state" hidden>
+        <h2>暂无可展示的分析快照</h2>
+        <p>完成一次日分析后，这里会显示板块信号和证据。</p>
+      </div>
+
+      <div id="dashboard" class="dashboard" aria-live="polite">
+        <section class="sector-title-row">
+          <div>
+            <h2 id="selected-board">选择板块</h2>
+            <p id="selected-summary">从左侧列表选择一个板块查看分析。</p>
+          </div>
+          <div class="as-of-copy">截至 <strong id="selected-date">—</strong></div>
+        </section>
+
+        <section class="decision-strip" data-section="analysis">
+          <div><span>当前状态</span><strong id="current-state">—</strong></div>
+          <div><span>置信度</span><strong id="current-confidence">—</strong></div>
+          <div><span>历史窗口</span><strong id="history-days">—</strong></div>
+        </section>
+
+        <section id="metric-grid" class="metric-grid" data-section="analysis"></section>
+
+        <div class="analysis-grid" data-section="analysis">
+          <section class="panel trend-panel">
+            <div class="panel-heading">
+              <div><h3>指标趋势</h3><p>最近 30 个数据日</p></div>
+              <div class="chart-legend" aria-label="图例">
+                <span><i class="hot"></i>热度</span><span><i class="sent"></i>情绪</span><span><i class="crowd"></i>拥挤度</span>
+              </div>
+            </div>
+            <div id="history-chart" class="history-chart"></div>
+          </section>
+
+          <section class="panel posts-panel">
+            <div class="panel-heading"><div><h3>当日热门帖子</h3><p id="posts-subtitle">板块证据</p></div></div>
+            <ol id="post-list" class="post-list"></ol>
+          </section>
+        </div>
+
+        <section class="panel comparison-panel" data-section="comparison">
+          <div class="panel-heading"><div><h3>板块对比</h3><p>按拥挤度排序 · 同一数据快照</p></div></div>
+          <div class="comparison-table-wrap">
+            <table class="comparison-table">
+              <thead><tr><th>排名</th><th>板块</th><th>状态</th><th>热度</th><th>情绪</th><th>拥挤度</th><th>覆盖度</th><th>置信度</th></tr></thead>
+              <tbody id="comparison-body"></tbody>
+            </table>
+          </div>
+          <div id="comparison-cards" class="comparison-cards"></div>
+        </section>
+
+        <section class="panel quality-panel" data-section="quality">
+          <div class="panel-heading"><div><h3>数据说明</h3><p>新鲜度与分析覆盖</p></div></div>
+          <div id="quality-list" class="quality-list"></div>
+          <p class="method-note">指标用于比较板块讨论热度、情绪极性和样本覆盖，不构成投资建议。</p>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script src="/assets/app.js"></script>
+</body>
+</html>
